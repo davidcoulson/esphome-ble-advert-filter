@@ -101,8 +101,10 @@ CONFIG_SCHEMA = cv.Schema(
 
 
 async def to_code(config):
-    # Compiles the hook into bluetooth_proxy; without this there is no slot.
-    cg.add_define("USE_BLUETOOTH_PROXY_ADVERTISEMENT_FILTER")
+    # Supported way to compile the hook into bluetooth_proxy. Do not emit the
+    # define directly - it is an implementation detail of that component and may
+    # be renamed (esphome/esphome#19220).
+    bluetooth_proxy.enable_advertisement_filter()
 
     var = cg.new_Pvariable(config[CONF_ID])
     await cg.register_component(var, config)
