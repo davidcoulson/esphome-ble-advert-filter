@@ -11,6 +11,11 @@ from esphome.components import bluetooth_proxy
 from esphome.const import CONF_ID
 from esphome.core import MACAddress
 
+# Read by the `component_version` text_sensor platform, if the user adds one.
+# A plain constant rather than a registration call, so this component needs no
+# dependency on it and there is no codegen ordering to get wrong.
+COMPONENT_VERSION = "2026.09.12.1"
+
 DEPENDENCIES = ["bluetooth_proxy"]
 CODEOWNERS = ["@davidcoulson"]
 
