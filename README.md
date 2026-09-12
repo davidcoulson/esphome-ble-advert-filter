@@ -53,6 +53,7 @@ ble_advert_filter:
 | `allow_espressif` | `true` | Exempt Espressif-OUI addresses from the RPA check |
 | `mac_allowlist` | `[]` | Addresses that bypass **every** filter, including the RSSI threshold |
 | `mac_blocklist` | `[]` | Addresses this proxy ignores entirely. Beats every allow rule |
+| `allowlist_exclusive` | `false` | Turn `mac_allowlist` from a bypass list into an exclusive one — nothing else is forwarded |
 | `service_uuid_allowlist` | `[]` | Service UUIDs (16-bit or 128-bit) that bypass **every** filter |
 | `name_blocklist` | `[]` | Case-insensitive substring match on the advertised local name |
 | `manufacturer_blocklist` | `[]` | Bluetooth SIG company identifiers (AD type `0xFF`) |
@@ -81,6 +82,25 @@ These are not conveniences. Each fixes a way the address filters quietly break a
   this proxy out of the running *without* turning it into a single-purpose bridge. Raised as a
   use case on [esphome/esphome#14353](https://github.com/esphome/esphome/pull/14353) and
   [esphome/feature-requests#2908](https://github.com/esphome/feature-requests/issues/2908).
+
+## Relationship to the esp32_ble hardware whitelist
+
+[esphome/esphome#14353](https://github.com/esphome/esphome/pull/14353) programs the ESP-IDF
+controller whitelist (`BLE_SCAN_FILTER_ALLOW_ONLY_WLST`). **Where that is available it is the
+better tool** and this component is not a substitute:
+
+- It filters in the **BLE controller**, so non-matching packets never reach the host stack at
+  all — saving CPU and power, not just network traffic. A host-side filter like this one
+  receives and parses every packet before discarding it.
+- It also restricts **which devices may connect** to the ESP32, a security property an
+  advertisement filter cannot provide.
+- It applies to every consumer, including local `esp32_ble_tracker` sensors, not just what the
+  proxy forwards.
+
+`allowlist_exclusive: true` reproduces only the *observable* advertisement behaviour, for the
+platforms that PR cannot reach — it is ESP32-only, while `bluetooth_proxy` also runs on
+RP2040/RP2350, BK72xx and LN882x. On ESP32, prefer the hardware whitelist for a single-purpose
+bridge, and this component when a general-purpose proxy needs to shed noise.
 
 ## Diagnostics
 

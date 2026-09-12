@@ -45,6 +45,15 @@ class BLEAdvertFilter : public Component {
   /// reporting the device, so dropping its advertisements here takes this proxy
   /// out of the running without turning it into a single-purpose bridge.
   void add_blocked_mac(uint64_t addr) { this->mac_blocklist_.push_back(addr); }
+  /// Turn mac_allowlist from a bypass list into an exclusive one: nothing but
+  /// those addresses is forwarded.
+  ///
+  /// Reproduces the observable behaviour of the ESP-IDF controller whitelist
+  /// (esphome/esphome#14353) on platforms that have no such hardware path -
+  /// rp2, bk72xx, ln882x. On ESP32 prefer that PR's esp32_ble filter when it
+  /// lands: filtering in the controller also saves the CPU and power spent
+  /// parsing packets, which a host-side filter like this one cannot.
+  void set_allowlist_exclusive(bool exclusive) { this->allowlist_exclusive_ = exclusive; }
   void add_allowed_service_uuid(uint16_t uuid) { this->service_uuid_allowlist_.push_back(uuid); }
   void add_allowed_service_uuid128(const char *hex) { this->service_uuid128_hex_.push_back(hex); }
 
@@ -86,6 +95,7 @@ class BLEAdvertFilter : public Component {
   bool allow_espressif_{true};
   bool drop_non_resolvable_{false};
   bool allow_homekit_{true};
+  bool allowlist_exclusive_{false};
 };
 
 }  // namespace esphome::ble_advert_filter

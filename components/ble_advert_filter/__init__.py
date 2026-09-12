@@ -26,6 +26,7 @@ CONF_DROP_NON_RESOLVABLE = "drop_non_resolvable"
 CONF_NAME_BLOCKLIST = "name_blocklist"
 CONF_MAC_ALLOWLIST = "mac_allowlist"
 CONF_MAC_BLOCKLIST = "mac_blocklist"
+CONF_ALLOWLIST_EXCLUSIVE = "allowlist_exclusive"
 CONF_MANUFACTURER_BLOCKLIST = "manufacturer_blocklist"
 CONF_SERVICE_UUID_ALLOWLIST = "service_uuid_allowlist"
 
@@ -83,6 +84,7 @@ CONFIG_SCHEMA = cv.Schema(
         ),
         cv.Optional(CONF_MAC_ALLOWLIST, default=[]): cv.ensure_list(_mac_address),
         cv.Optional(CONF_MAC_BLOCKLIST, default=[]): cv.ensure_list(_mac_address),
+        cv.Optional(CONF_ALLOWLIST_EXCLUSIVE, default=False): cv.boolean,
         cv.Optional(CONF_MANUFACTURER_BLOCKLIST, default=[]): cv.ensure_list(
             cv.hex_uint16_t
         ),
@@ -107,6 +109,7 @@ async def to_code(config):
     cg.add(var.set_allow_espressif(config[CONF_ALLOW_ESPRESSIF]))
     cg.add(var.set_allow_homekit(config[CONF_ALLOW_HOMEKIT]))
     cg.add(var.set_drop_non_resolvable(config[CONF_DROP_NON_RESOLVABLE]))
+    cg.add(var.set_allowlist_exclusive(config[CONF_ALLOWLIST_EXCLUSIVE]))
 
     if irks := config[CONF_IRKS]:
         cg.add(var.set_irks_hex("".join(irks)))

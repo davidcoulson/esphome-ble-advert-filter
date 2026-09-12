@@ -304,6 +304,7 @@ void BLEAdvertFilter::dump_config() {
                 static_cast<unsigned>(this->service_uuid_allowlist_.size()),
                 static_cast<unsigned>(this->service_uuid128_.size()));
   ESP_LOGCONFIG(TAG, "  Allow HomeKit: %s", YESNO(this->allow_homekit_));
+  ESP_LOGCONFIG(TAG, "  Allowlist exclusive: %s", YESNO(this->allowlist_exclusive_));
 }
 
 bool BLEAdvertFilter::should_forward(const ble_device_base::RawAdvertisement &adv) {
@@ -352,6 +353,14 @@ bool BLEAdvertFilter::should_forward(const ble_device_base::RawAdvertisement &ad
     protected_addr = true;
     this->adv_allowed_service_uuid_++;
     ESP_LOGVV(TAG, "Allowing packet from %012" PRIX64 ": allowlisted service UUID", adv.address);
+  }
+
+  // Exclusive mode: the allowlist stops being a bypass and becomes the only way
+  // through. Checked after the bypass loop above has set protected_addr.
+  if (this->allowlist_exclusive_ && !protected_addr) {
+    this->adv_dropped_++;
+    ESP_LOGVV(TAG, "Dropping packet from %012" PRIX64 ": not on the exclusive allowlist", adv.address);
+    return false;
   }
 
   // Distance first, and it applies to everything else: a far-away device is not
