@@ -14,7 +14,7 @@ from esphome.core import MACAddress
 # Read by the `component_version` text_sensor platform, if the user adds one.
 # A plain constant rather than a registration call, so this component needs no
 # dependency on it and there is no codegen ordering to get wrong.
-COMPONENT_VERSION = "2026.09.12.1"
+COMPONENT_VERSION = "2026.09.13.0"
 
 DEPENDENCIES = ["bluetooth_proxy"]
 CODEOWNERS = ["@davidcoulson"]
@@ -24,6 +24,10 @@ BLEAdvertFilter = ble_advert_filter_ns.class_("BLEAdvertFilter", cg.Component)
 
 CONF_BLUETOOTH_PROXY_ID = "bluetooth_proxy_id"
 CONF_RSSI_THRESHOLD = "rssi_threshold"
+CONF_RSSI_FLOOR = "rssi_floor"
+CONF_RSSI_MAC_ALLOWLIST = "rssi_mac_allowlist"
+CONF_RSSI_IRK = "rssi_irk"
+CONF_RSSI_SERVICE_UUID = "rssi_service_uuid"
 CONF_IRKS = "irks"
 CONF_ALLOW_ESPRESSIF = "allow_espressif"
 CONF_ALLOW_HOMEKIT = "allow_homekit"
@@ -73,6 +77,37 @@ def _validate_service_uuid(value):
     return cv.hex_uint16_t(value)
 
 
+def _validate_rssi_floor(config):
+    """Reject a floor stricter than the limits it is meant to backstop.
+
+    rssi_floor runs before categorisation and applies to every advertisement;
+    every other limit is applied afterwards to one category. The floor is
+    therefore only meaningful while it is the loosest of them. A floor above a
+    category's limit would silently take over as that category's effective
+    filter, so fail loudly rather than quietly changing behaviour.
+    """
+    floor = config[CONF_RSSI_FLOOR]
+    threshold = config[CONF_RSSI_THRESHOLD]
+    for key in (CONF_RSSI_MAC_ALLOWLIST, CONF_RSSI_IRK, CONF_RSSI_SERVICE_UUID):
+        limit = config[key]
+        if limit != -127 and floor != -127 and limit < floor:
+            raise cv.Invalid(
+                f"{key} ({limit}) is below {CONF_RSSI_FLOOR} ({floor}), so it "
+                f"can never fire: the floor has already dropped anything that "
+                f"weak. Raise it above the floor, or remove it.",
+                path=[key],
+            )
+    if floor != -127 and floor > threshold:
+        raise cv.Invalid(
+            f"{CONF_RSSI_FLOOR} ({floor}) must be at or below "
+            f"{CONF_RSSI_THRESHOLD} ({threshold}): the floor is an absolute "
+            f"backstop applied ahead of the allowlists, so a floor stricter "
+            f"than the threshold would override it for every device.",
+            path=[CONF_RSSI_FLOOR],
+        )
+    return config
+
+
 CONFIG_SCHEMA = cv.Schema(
     {
         cv.GenerateID(): cv.declare_id(BLEAdvertFilter),
@@ -80,6 +115,19 @@ CONFIG_SCHEMA = cv.Schema(
             bluetooth_proxy.BluetoothProxy
         ),
         cv.Optional(CONF_RSSI_THRESHOLD, default=-127): cv.int_range(min=-127, max=0),
+        # Absolute floor, applied before categorisation rather than after it, so
+        # it bounds mac_allowlist / service_uuid_allowlist too. -127 disables it
+        # and is the default, so an unconfigured build is unchanged.
+        cv.Optional(CONF_RSSI_FLOOR, default=-127): cv.int_range(min=-127, max=0),
+        # Per-category limits. -127 (default) means inherit; see the setters in
+        # ble_advert_filter.h for what each inherits and why.
+        cv.Optional(CONF_RSSI_MAC_ALLOWLIST, default=-127): cv.int_range(
+            min=-127, max=0
+        ),
+        cv.Optional(CONF_RSSI_IRK, default=-127): cv.int_range(min=-127, max=0),
+        cv.Optional(CONF_RSSI_SERVICE_UUID, default=-127): cv.int_range(
+            min=-127, max=0
+        ),
         cv.Optional(CONF_IRKS, default=[]): cv.ensure_list(_validate_irk),
         cv.Optional(CONF_ALLOW_ESPRESSIF, default=True): cv.boolean,
         cv.Optional(CONF_ALLOW_HOMEKIT, default=True): cv.boolean,
@@ -99,6 +147,8 @@ CONFIG_SCHEMA = cv.Schema(
     }
 ).extend(cv.COMPONENT_SCHEMA)
 
+CONFIG_SCHEMA = cv.All(CONFIG_SCHEMA, _validate_rssi_floor)
+
 
 async def to_code(config):
     # Supported way to compile the hook into bluetooth_proxy. Do not emit the
@@ -113,6 +163,10 @@ async def to_code(config):
     cg.add(var.set_parent(parent))
 
     cg.add(var.set_rssi_threshold(config[CONF_RSSI_THRESHOLD]))
+    cg.add(var.set_rssi_floor(config[CONF_RSSI_FLOOR]))
+    cg.add(var.set_rssi_mac_allowlist(config[CONF_RSSI_MAC_ALLOWLIST]))
+    cg.add(var.set_rssi_irk(config[CONF_RSSI_IRK]))
+    cg.add(var.set_rssi_service_uuid(config[CONF_RSSI_SERVICE_UUID]))
     cg.add(var.set_allow_espressif(config[CONF_ALLOW_ESPRESSIF]))
     cg.add(var.set_allow_homekit(config[CONF_ALLOW_HOMEKIT]))
     cg.add(var.set_drop_non_resolvable(config[CONF_DROP_NON_RESOLVABLE]))

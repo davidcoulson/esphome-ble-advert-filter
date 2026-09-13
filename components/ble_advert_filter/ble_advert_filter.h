@@ -24,10 +24,47 @@ class BLEAdvertFilter : public Component {
 
   void set_parent(bluetooth_proxy::BluetoothProxy *parent) { this->parent_ = parent; }
 
+  /// The limit for the DEFAULT category - everything not matched by the MAC
+  /// allowlist, an IRK, or an allowlisted service UUID. Also what the irk and
+  /// service_uuid categories inherit when their own limit is unset.
+  ///
   /// Runtime-tunable: the matching number entity restores on boot and overwrites
   /// whatever the YAML set, so tune there rather than reflashing.
   void set_rssi_threshold(int8_t rssi) { this->rssi_threshold_ = rssi; }
   int8_t get_rssi_threshold() const { return this->rssi_threshold_; }
+
+  /// Absolute reception floor, applied to EVERY advertisement including ones
+  /// mac_allowlist / service_uuid_allowlist would otherwise protect. Where
+  /// rssi_threshold answers "is this close enough to be interesting", this
+  /// answers "is this reading usable at all" - below it the RSSI is dominated
+  /// by noise and a tracker would only be misled by it.
+  ///
+  /// Runs BEFORE categorisation, which is the whole point: an allowlisted tag
+  /// heard at -100 dBm is still dropped. -127 (the default) disables it.
+  void set_rssi_floor(int8_t rssi) { this->rssi_floor_ = rssi; }
+  int8_t get_rssi_floor() const { return this->rssi_floor_; }
+
+  /// Per-category RSSI limits. Every advertisement is categorised first (MAC
+  /// allowlist / IRK match / allowlisted service UUID / everything else) and
+  /// then measured against that category's own limit, so all four are fully
+  /// independent - any one can be looser or stricter than any other.
+  ///
+  /// -127 (the default) means INHERIT, chosen so a config that sets none of
+  /// these behaves exactly as it did before they existed:
+  ///   mac_allowlist  -> no limit beyond rssi_floor (it has always been a full
+  ///                     bypass of rssi_threshold)
+  ///   irk            -> rssi_threshold (they were resolved after it ran, so it
+  ///   service_uuid      always applied to them)
+  ///
+  /// The categories want different distances. Beacon tags (mac_allowlist) are
+  /// the reason the bypass exists: a weak reading at one proxy is exactly what
+  /// places the tag nearer another, so they want the loosest limit. Phones
+  /// (irks) are tracked the same way but are far chattier. A device in pairing
+  /// mode (service_uuid_allowlist) is in your hand, so it can afford the
+  /// strictest limit of the three.
+  void set_rssi_mac_allowlist(int8_t rssi) { this->rssi_mac_allowlist_ = rssi; }
+  void set_rssi_irk(int8_t rssi) { this->rssi_irk_ = rssi; }
+  void set_rssi_service_uuid(int8_t rssi) { this->rssi_service_uuid_ = rssi; }
 
   void set_allow_espressif(bool allow) { this->allow_espressif_ = allow; }
   void set_drop_non_resolvable(bool drop) { this->drop_non_resolvable_ = drop; }
@@ -61,6 +98,11 @@ class BLEAdvertFilter : public Component {
   uint32_t get_adv_dropped() const { return this->adv_dropped_; }
   uint32_t get_adv_dropped_rpa() const { return this->adv_dropped_rpa_; }
   uint32_t get_adv_allowed_service_uuid() const { return this->adv_allowed_service_uuid_; }
+  /// Subset of get_adv_dropped(): advertisements discarded by the rssi_floor.
+  /// Separated out because it is the only counter that can include otherwise
+  /// protected devices, so a rising value means a tracked tag is being cut -
+  /// which is exactly when the floor needs revisiting.
+  uint32_t get_adv_dropped_floor() const { return this->adv_dropped_floor_; }
 
   /// The predicate itself. False drops the advertisement.
   bool should_forward(const ble_device_base::RawAdvertisement &adv);
@@ -80,6 +122,7 @@ class BLEAdvertFilter : public Component {
   uint32_t adv_dropped_{0};
   uint32_t adv_dropped_rpa_{0};
   uint32_t adv_allowed_service_uuid_{0};
+  uint32_t adv_dropped_floor_{0};
 
   const char *irks_hex_{nullptr};
   std::vector<std::array<uint8_t, 16>> irks_;
@@ -92,6 +135,12 @@ class BLEAdvertFilter : public Component {
   std::vector<uint16_t> manufacturer_blocklist_;
 
   int8_t rssi_threshold_{-127};
+  // Absolute floor applied ahead of categorisation. -127 disables it.
+  int8_t rssi_floor_{-127};
+  // Per-category limits; -127 means "inherit", see the setters above.
+  int8_t rssi_mac_allowlist_{-127};
+  int8_t rssi_irk_{-127};
+  int8_t rssi_service_uuid_{-127};
   bool allow_espressif_{true};
   bool drop_non_resolvable_{false};
   bool allow_homekit_{true};

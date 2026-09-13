@@ -308,9 +308,26 @@ void BLEAdvertFilter::dump_config() {
 }
 
 bool BLEAdvertFilter::should_forward(const ble_device_base::RawAdvertisement &adv) {
-  // Checked first, and it beats every bypass below including mac_allowlist: the
-  // point of this list is "this proxy ignores this device entirely", so an entry
-  // here must not be overridable by a broader allow rule.
+  // This is the only point where a packet can be suppressed without it crossing
+  // the network, so every filter lives here.
+  //
+  // Structure, changed in v1.1.0: the advertisement is CATEGORISED first, then
+  // measured against that category's own RSSI limit. Before v1.1.0 the single
+  // rssi_threshold ran partway down the chain, which meant only mac_allowlist
+  // could be given a looser limit - irks and service UUIDs were resolved after
+  // the threshold had already dropped the advertisement, so their limits could
+  // only ever tighten. Categorising first makes all four limits genuinely
+  // independent: any category can be looser OR stricter than any other.
+  //
+  // The cost is that IRK resolution and the service-UUID payload walk now run
+  // for advertisements between rssi_floor and rssi_threshold that the old order
+  // discarded before reaching them. rssi_floor is the mitigation - it is the
+  // cheapest test there is, it runs first, and it applies to everything, so the
+  // bulk of distant noise never reaches the categoriser at all.
+
+  // 1. Ignored outright, ahead of every allow rule: the point of this list is
+  //    "this proxy does not handle this device", which a broader allowlist
+  //    entry must not be able to override.
   for (const uint64_t blocked : this->mac_blocklist_) {
     if (blocked == adv.address) {
       this->adv_dropped_++;
@@ -319,86 +336,53 @@ bool BLEAdvertFilter::should_forward(const ble_device_base::RawAdvertisement &ad
     }
   }
 
-  // This is the only point where a packet can be suppressed without it crossing
-  // the network, so every filter lives here rather than downstream.
+  // 2. Absolute reception floor, applied to EVERYTHING including every
+  //    protected category. Below this an RSSI carries no usable distance
+  //    information - it is receiver noise, and forwarding it does not help a
+  //    tracker triangulate, it misleads it. Deliberately first among the
+  //    distance tests: it is the cheapest, and it keeps the categoriser below
+  //    from running on traffic no category would have kept anyway.
+  //    -127 (default) disables it.
+  if (this->rssi_floor_ != -127 && adv.rssi < this->rssi_floor_) {
+    this->adv_dropped_++;
+    this->adv_dropped_floor_++;
+    ESP_LOGVV(TAG, "Dropping packet from %012" PRIX64 ": RSSI %d dB below absolute floor %d dB", adv.address, adv.rssi,
+              this->rssi_floor_);
+    return false;
+  }
 
-  // Explicitly protected addresses bypass every filter, including the RSSI
-  // threshold: these are the tracked tags, and a tag being far from *this*
-  // proxy is exactly the reading the tracker needs to place it near another.
-  // Cheap enough to run first - the list is a handful of entries.
+  // 3. Categorise. Tests run cheapest-first and the first hit wins, so a device
+  //    on the MAC allowlist is never also charged for an IRK resolution.
+  //    protected_addr means "exempt from the payload filters at the end of the
+  //    chain" and is set by every category except DEFAULT.
+  enum : uint8_t { CAT_DEFAULT, CAT_MAC, CAT_IRK, CAT_UUID } category = CAT_DEFAULT;
   bool protected_addr = false;
+
   for (const uint64_t allowed : this->mac_allowlist_) {
     if (allowed == adv.address) {
+      category = CAT_MAC;
       protected_addr = true;
       break;
     }
   }
 
-  // A device advertising an allowlisted service UUID is protected exactly like
-  // an allowlisted MAC. This has to run here, ahead of the address-type tests,
-  // because the case it exists for is a device in pairing mode advertising from
-  // a rotating private address: by the time those tests run the advertisement is
-  // already gone, and its address could not have been allowlisted in advance.
+  // An RPA is identified from two bits of the address, so the expensive part
+  // (irk_matches_, which runs AES per key) is reached only by actual RPAs.
   //
-  // It is deliberately placed before the RSSI test as well. A device being
-  // paired is normally close by, but a pairing window is short and
-  // user-initiated, so a missed advertisement costs a retry while the extra
-  // traffic lasts only as long as the pairing does.
-  //
-  // Cost: this walks the payload, which the filters below otherwise defer to
-  // last. Guarded on a non-empty allowlist so a build that does not use the
-  // option keeps the original ordering and pays nothing.
-  if (!protected_addr && (!this->service_uuid_allowlist_.empty() || !this->service_uuid128_.empty()) &&
-      this->payload_has_allowed_service_uuid_(adv.data, adv.data_len)) {
-    protected_addr = true;
-    this->adv_allowed_service_uuid_++;
-    ESP_LOGVV(TAG, "Allowing packet from %012" PRIX64 ": allowlisted service UUID", adv.address);
-  }
-
-  // Exclusive mode: the allowlist stops being a bypass and becomes the only way
-  // through. Checked after the bypass loop above has set protected_addr.
-  if (this->allowlist_exclusive_ && !protected_addr) {
-    this->adv_dropped_++;
-    ESP_LOGVV(TAG, "Dropping packet from %012" PRIX64 ": not on the exclusive allowlist", adv.address);
-    return false;
-  }
-
-  // Distance first, and it applies to everything else: a far-away device is not
-  // worth forwarding even when we would otherwise allow it through below.
-  // Cheapest test too, so nothing distant ever reaches the AES.
-  if (!protected_addr && adv.rssi < this->rssi_threshold_) {
-    this->adv_dropped_++;
-    ESP_LOGVV(TAG, "Dropping packet from %012" PRIX64 ": RSSI %d dB below threshold %d dB", adv.address, adv.rssi,
-              this->rssi_threshold_);
-    return false;
-  }
-
-  // A non-resolvable private address rotates and carries no identity, so it can
-  // never be matched to a device - not even with an IRK. Nothing can be done
-  // with these, and each rotation looks like a brand new device downstream.
-  if (!protected_addr && this->drop_non_resolvable_ &&
-      this->address_is_non_resolvable_(adv.address, adv.addr_type)) {
-    this->adv_dropped_++;
-    ESP_LOGVV(TAG, "Dropping packet from %012" PRIX64 ": non-resolvable private address", adv.address);
-    return false;
-  }
-
-  // A Resolvable Private Address we cannot resolve belongs to somebody else's
-  // phone or watch: it rotates, so it can never be tracked here and is pure
-  // noise. Devices with fixed addresses are left alone - they have no IRK.
-  //
-  // allow_espressif exempts our own ESPs from this test. Note it is a safety
-  // net, not load-bearing: ESPHome advertises on the public MAC, and a public
-  // address is never an RPA, so those advertisements do not reach this test
-  // anyway. It only bites if an ESP is ever configured to advertise randomly.
-  if (!protected_addr && !this->irks_.empty() && this->address_is_rpa_(adv.address, adv.addr_type) &&
+  // allow_espressif exempts our own ESPs. It is a safety net, not load-bearing:
+  // ESPHome advertises on the public MAC, and a public address is never an RPA.
+  if (category == CAT_DEFAULT && !this->irks_.empty() && this->address_is_rpa_(adv.address, adv.addr_type) &&
       !(this->allow_espressif_ && this->is_espressif_oui_(adv.address))) {
     if (this->irk_matches_(adv.address)) {
-      // One of ours. Mark it protected so the payload filters below cannot
-      // discard it - our phones and watches advertise Apple manufacturer data,
-      // which a manufacturer_blocklist entry would otherwise match.
+      // One of ours. Protected so the payload filters below cannot discard it -
+      // our phones and watches advertise Apple manufacturer data, which a
+      // manufacturer_blocklist entry would otherwise match.
+      category = CAT_IRK;
       protected_addr = true;
     } else {
+      // Somebody else's phone or watch: it rotates, so it can never be tracked
+      // here and is pure noise. Dropped regardless of RSSI - proximity does not
+      // make an unidentifiable device identifiable.
       this->adv_dropped_++;
       this->adv_dropped_rpa_++;
       ESP_LOGVV(TAG, "Dropping packet from %012" PRIX64 ": unresolved RPA", adv.address);
@@ -406,15 +390,81 @@ bool BLEAdvertFilter::should_forward(const ble_device_base::RawAdvertisement &ad
     }
   }
 
-  // Payload-based filters last: this is the only test that has to walk the
-  // advertisement, and by here most traffic has already been rejected.
+  // Walks the payload, so it is last and is skipped entirely when unconfigured.
+  // Exists for devices whose address cannot be known ahead of time: a device in
+  // pairing mode advertises from a rotating private address, which the
+  // non-resolvable test below would otherwise discard.
+  if (category == CAT_DEFAULT && (!this->service_uuid_allowlist_.empty() || !this->service_uuid128_.empty()) &&
+      this->payload_has_allowed_service_uuid_(adv.data, adv.data_len)) {
+    category = CAT_UUID;
+    protected_addr = true;
+    this->adv_allowed_service_uuid_++;
+  }
+
+  // 4. Apply the category's own RSSI limit.
+  //
+  //    An unset (-127) limit INHERITS, and what it inherits from is chosen to
+  //    reproduce pre-v1.1.0 behaviour exactly on an upgrade that sets nothing:
+  //      CAT_MAC   -> no further limit; bounded only by rssi_floor. The MAC
+  //                   allowlist has always been a full bypass of the threshold.
+  //      CAT_IRK   -> rssi_threshold. IRK-matched devices have always been
+  //      CAT_UUID     subject to it, because it used to run before they were
+  //                   resolved. Set these explicitly to give either category
+  //                   more range than the fleet default.
+  //      CAT_DEFAULT -> rssi_threshold.
+  int8_t limit;
+  const char *limit_name;
+  switch (category) {
+    case CAT_MAC:
+      limit = this->rssi_mac_allowlist_;
+      limit_name = "mac_allowlist";
+      break;
+    case CAT_IRK:
+      limit = this->rssi_irk_ != -127 ? this->rssi_irk_ : this->rssi_threshold_;
+      limit_name = "irk";
+      break;
+    case CAT_UUID:
+      limit = this->rssi_service_uuid_ != -127 ? this->rssi_service_uuid_ : this->rssi_threshold_;
+      limit_name = "service_uuid";
+      break;
+    default:
+      limit = this->rssi_threshold_;
+      limit_name = "threshold";
+      break;
+  }
+  if (limit != -127 && adv.rssi < limit) {
+    this->adv_dropped_++;
+    ESP_LOGVV(TAG, "Dropping packet from %012" PRIX64 ": RSSI %d dB below %s limit %d dB", adv.address, adv.rssi,
+              limit_name, limit);
+    return false;
+  }
+
+  // 5. Exclusive mode: the allowlist stops being a bypass and becomes the only
+  //    way through. Every category above except CAT_DEFAULT counts as allowed.
+  if (this->allowlist_exclusive_ && !protected_addr) {
+    this->adv_dropped_++;
+    ESP_LOGVV(TAG, "Dropping packet from %012" PRIX64 ": not on the exclusive allowlist", adv.address);
+    return false;
+  }
+
+  // 6. A non-resolvable private address rotates and carries no identity, so it
+  //    can never be matched to a device - not even with an IRK. Each rotation
+  //    looks like a brand new device downstream.
+  if (!protected_addr && this->drop_non_resolvable_ &&
+      this->address_is_non_resolvable_(adv.address, adv.addr_type)) {
+    this->adv_dropped_++;
+    ESP_LOGVV(TAG, "Dropping packet from %012" PRIX64 ": non-resolvable private address", adv.address);
+    return false;
+  }
+
+  // 7. Payload-based filters last: by here most traffic has already gone.
   if (!protected_addr && (!this->name_blocklist_.empty() || !this->manufacturer_blocklist_.empty()) &&
       this->payload_blocked_(adv.data, adv.data_len)) {
     this->adv_dropped_++;
     ESP_LOGVV(TAG, "Dropping packet from %012" PRIX64 ": blocklisted name or manufacturer", adv.address);
     return false;
   }
-  this->adv_forwarded_++;
+
   this->adv_forwarded_++;
   return true;
 }
