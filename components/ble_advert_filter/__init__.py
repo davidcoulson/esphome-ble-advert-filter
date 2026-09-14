@@ -6,10 +6,11 @@ being forwarded for Home Assistant to discard.
 """
 
 import esphome.codegen as cg
-import esphome.config_validation as cv
 from esphome.components import bluetooth_proxy
+import esphome.config_validation as cv
 from esphome.const import CONF_ID
 from esphome.core import MACAddress
+from esphome.types import ConfigType
 
 # Read by the `component_version` text_sensor platform, if the user adds one.
 # A plain constant rather than a registration call, so this component needs no
@@ -44,14 +45,14 @@ CONF_MANUFACTURER_BLOCKLIST = "manufacturer_blocklist"
 CONF_SERVICE_UUID_ALLOWLIST = "service_uuid_allowlist"
 
 
-def _mac_address(value):
+def _mac_address(value: str | MACAddress) -> MACAddress:
     """`cv.mac_address`, but safe to run twice (str -> MACAddress is not idempotent)."""
     if isinstance(value, MACAddress):
         return value
     return cv.mac_address(value)
 
 
-def _validate_irk(value):
+def _validate_irk(value: str) -> str:
     """One 16-byte Identity Resolving Key, as 32 hex chars.
 
     Accepts the separator styles people paste and normalises to bare lowercase
@@ -68,7 +69,7 @@ def _validate_irk(value):
     return stripped
 
 
-def _validate_service_uuid(value):
+def _validate_service_uuid(value: int | str) -> int | str:
     """A 16-bit short (0xFFF6) or a full 128-bit UUID."""
     if isinstance(value, int):
         return cv.hex_uint16_t(value)
@@ -104,14 +105,14 @@ _IBEACON_FILTER_SCHEMA = cv.Schema(
 )
 
 
-def _validate_allow_ibeacon(value):
+def _validate_allow_ibeacon(value: bool | list[ConfigType]) -> bool | list[ConfigType]:
     """Accept `true`/`false`, or a list of major/minor filters."""
     if isinstance(value, bool):
         return value
     return cv.ensure_list(_IBEACON_FILTER_SCHEMA)(value)
 
 
-def _ibeacon_to_code(var, config) -> list[int]:
+def _ibeacon_to_code(var: cg.MockObj, config: ConfigType) -> list[int]:
     """Emit the allow_ibeacon config; returns the RSSI limits it introduced.
 
     The caller needs those to size the pre-gate: a rule that forwards at -127
@@ -142,7 +143,14 @@ def _ibeacon_to_code(var, config) -> list[int]:
     return limits
 
 
-def effective_gate(threshold, floor, mac_allowlist, irk, service_uuid, ibeacon_limits):
+def effective_gate(
+    threshold: int,
+    floor: int,
+    mac_allowlist: int,
+    irk: int,
+    service_uuid: int,
+    ibeacon_limits: list[int],
+) -> int:
     """The loosest RSSI limit any rule in this config could apply.
 
     Pure, and importable by tests, because getting it wrong is silent: the gate
@@ -154,7 +162,7 @@ def effective_gate(threshold, floor, mac_allowlist, irk, service_uuid, ibeacon_l
     is the common case. Each category resolves to its effective bound first.
     """
 
-    def bound(explicit, fallback):
+    def bound(explicit: int, fallback: int) -> int:
         return explicit if explicit != -127 else fallback
 
     limits = [
@@ -169,7 +177,9 @@ def effective_gate(threshold, floor, mac_allowlist, irk, service_uuid, ibeacon_l
     return -127 if -127 in limits else min(limits)
 
 
-def _min_rssi_gate_to_code(var, config, ibeacon_limits: list[int]) -> None:
+def _min_rssi_gate_to_code(
+    var: cg.MockObj, config: ConfigType, ibeacon_limits: list[int]
+) -> None:
     """Emit the pre-gate: anything weaker than any rule's limit dies early.
 
     Keeps an AES resolve and a payload walk off every distant advert once a
@@ -189,7 +199,7 @@ def _min_rssi_gate_to_code(var, config, ibeacon_limits: list[int]) -> None:
     )
 
 
-def _validate_rssi_floor(config):
+def _validate_rssi_floor(config: ConfigType) -> ConfigType:
     """Reject a floor stricter than the limits it is meant to backstop.
 
     rssi_floor runs before categorisation and applies to every advertisement;
@@ -267,7 +277,7 @@ CONFIG_SCHEMA = cv.Schema(
 CONFIG_SCHEMA = cv.All(CONFIG_SCHEMA, _validate_rssi_floor)
 
 
-async def to_code(config):
+async def to_code(config: ConfigType) -> None:
     # Supported way to compile the hook into bluetooth_proxy. Do not emit the
     # define directly - it is an implementation detail of that component and may
     # be renamed (esphome/esphome#19220).
