@@ -14,7 +14,7 @@ from esphome.core import MACAddress
 # Read by the `component_version` text_sensor platform, if the user adds one.
 # A plain constant rather than a registration call, so this component needs no
 # dependency on it and there is no codegen ordering to get wrong.
-COMPONENT_VERSION = "2026.09.13.0"
+COMPONENT_VERSION = "2026.09.13.1"
 
 DEPENDENCIES = ["bluetooth_proxy"]
 CODEOWNERS = ["@davidcoulson"]
@@ -31,6 +31,10 @@ CONF_RSSI_SERVICE_UUID = "rssi_service_uuid"
 CONF_IRKS = "irks"
 CONF_ALLOW_ESPRESSIF = "allow_espressif"
 CONF_ALLOW_HOMEKIT = "allow_homekit"
+CONF_ALLOW_IBEACON = "allow_ibeacon"
+CONF_MAJOR = "major"
+CONF_MINOR = "minor"
+CONF_RSSI = "rssi"
 CONF_DROP_NON_RESOLVABLE = "drop_non_resolvable"
 CONF_NAME_BLOCKLIST = "name_blocklist"
 CONF_MAC_ALLOWLIST = "mac_allowlist"
@@ -75,6 +79,114 @@ def _validate_service_uuid(value):
             raise cv.Invalid("128-bit service UUID must be hexadecimal")
         return stripped
     return cv.hex_uint16_t(value)
+
+
+# One entry of the allow_ibeacon list. `minor` accepts a single value or a list;
+# omitting it exempts the whole major. Nested rather than flat
+# ibeacon_major/ibeacon_minor keys because a minor is only meaningful inside a
+# major - flat keys cannot express "major 1 minor 7 AND major 10 minor 3".
+# Mirrors BLEAdvertFilter::IBEACON_RSSI_INHERIT.
+_IBEACON_RSSI_INHERIT = -128
+
+_IBEACON_FILTER_SCHEMA = cv.Schema(
+    {
+        cv.Required(CONF_MAJOR): cv.uint16_t,
+        cv.Optional(CONF_MINOR): cv.ensure_list(cv.uint16_t),
+        # This filter's own RSSI limit, overriding BOTH rssi_threshold and
+        # rssi_floor for adverts it matches. Omitted = inherit: the rule exempts
+        # the advert from manufacturer_blocklist and nothing else, so the
+        # distance rules still apply. -127 forwards at any strength.
+        cv.Optional(CONF_RSSI, default=_IBEACON_RSSI_INHERIT): cv.Any(
+            cv.int_range(min=-127, max=0),
+            cv.int_range(min=_IBEACON_RSSI_INHERIT, max=_IBEACON_RSSI_INHERIT),
+        ),
+    }
+)
+
+
+def _validate_allow_ibeacon(value):
+    """Accept `true`/`false`, or a list of major/minor filters."""
+    if isinstance(value, bool):
+        return value
+    return cv.ensure_list(_IBEACON_FILTER_SCHEMA)(value)
+
+
+def _ibeacon_to_code(var, config) -> list[int]:
+    """Emit the allow_ibeacon config; returns the RSSI limits it introduced.
+
+    The caller needs those to size the pre-gate: a rule that forwards at -127
+    means nothing can be dropped cheaply up front.
+    """
+    value = config[CONF_ALLOW_IBEACON]
+    if value is False:
+        return []
+    if value is True:
+        # A bare `true` exempts every iBeacon from the blocklist and nothing
+        # more; the distance rules still apply, same as an inheriting filter.
+        cg.add(var.set_allow_ibeacon(True))
+        cg.add(var.set_ibeacon_any_rssi(_IBEACON_RSSI_INHERIT))
+        return [_IBEACON_RSSI_INHERIT]
+    # A list scopes the exemption, so the unscoped flag stays off.
+    cg.add(var.set_allow_ibeacon(False))
+    limits = []
+    for entry in value:
+        major = entry[CONF_MAJOR]
+        rssi = entry[CONF_RSSI]
+        limits.append(rssi)
+        minors = entry.get(CONF_MINOR)
+        if not minors:
+            cg.add(var.add_ibeacon_major(major, rssi))
+            continue
+        for minor in minors:
+            cg.add(var.add_ibeacon_major_minor(major, minor, rssi))
+    return limits
+
+
+def effective_gate(threshold, floor, mac_allowlist, irk, service_uuid, ibeacon_limits):
+    """The loosest RSSI limit any rule in this config could apply.
+
+    Pure, and importable by tests, because getting it wrong is silent: the gate
+    simply stops rejecting anything and the only symptom is a busier radio.
+
+    -127 on a CATEGORY key is the default and means "brought no limit of its
+    own, inherit one" - NOT "forwards everything". Feeding those raw into the
+    min() disabled the gate for every config that left a category unset, which
+    is the common case. Each category resolves to its effective bound first.
+    """
+
+    def bound(explicit, fallback):
+        return explicit if explicit != -127 else fallback
+
+    limits = [
+        threshold,  # DEFAULT
+        bound(mac_allowlist, floor),  # MAC: floor is its only bound
+        bound(irk, threshold),
+        bound(service_uuid, threshold),
+    ]
+    # An inheriting iBeacon rule is already covered by threshold above.
+    limits += [r for r in ibeacon_limits if r != _IBEACON_RSSI_INHERIT]
+    # A category bounded only by a disabled floor really is unbounded.
+    return -127 if -127 in limits else min(limits)
+
+
+def _min_rssi_gate_to_code(var, config, ibeacon_limits: list[int]) -> None:
+    """Emit the pre-gate: anything weaker than any rule's limit dies early.
+
+    Keeps an AES resolve and a payload walk off every distant advert once a
+    fleet allows its own beacons through at a low RSSI.
+    """
+    cg.add(
+        var.set_min_rssi_gate(
+            effective_gate(
+                config[CONF_RSSI_THRESHOLD],
+                config[CONF_RSSI_FLOOR],
+                config[CONF_RSSI_MAC_ALLOWLIST],
+                config[CONF_RSSI_IRK],
+                config[CONF_RSSI_SERVICE_UUID],
+                ibeacon_limits,
+            )
+        )
+    )
 
 
 def _validate_rssi_floor(config):
@@ -131,6 +243,11 @@ CONFIG_SCHEMA = cv.Schema(
         cv.Optional(CONF_IRKS, default=[]): cv.ensure_list(_validate_irk),
         cv.Optional(CONF_ALLOW_ESPRESSIF, default=True): cv.boolean,
         cv.Optional(CONF_ALLOW_HOMEKIT, default=True): cv.boolean,
+        # iBeacon is Apple manufacturer data (subtype 0x02), so blocklisting
+        # 0x004C takes every iBeacon with it. Off by default - unlike HomeKit,
+        # an iBeacon is usually exactly the noise the blocklist is there to
+        # kill. Turn it on when something you own beacons.
+        cv.Optional(CONF_ALLOW_IBEACON, default=False): _validate_allow_ibeacon,
         cv.Optional(CONF_DROP_NON_RESOLVABLE, default=False): cv.boolean,
         cv.Optional(CONF_NAME_BLOCKLIST, default=[]): cv.ensure_list(
             cv.All(cv.string_strict, cv.Length(min=1, max=29))
@@ -165,6 +282,7 @@ async def to_code(config):
     cg.add(var.set_rssi_threshold(config[CONF_RSSI_THRESHOLD]))
     cg.add(var.set_rssi_floor(config[CONF_RSSI_FLOOR]))
     cg.add(var.set_rssi_mac_allowlist(config[CONF_RSSI_MAC_ALLOWLIST]))
+    _min_rssi_gate_to_code(var, config, _ibeacon_to_code(var, config))
     cg.add(var.set_rssi_irk(config[CONF_RSSI_IRK]))
     cg.add(var.set_rssi_service_uuid(config[CONF_RSSI_SERVICE_UUID]))
     cg.add(var.set_allow_espressif(config[CONF_ALLOW_ESPRESSIF]))

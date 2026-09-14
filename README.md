@@ -63,6 +63,7 @@ ble_advert_filter:
 | `name_blocklist` | `[]` | Case-insensitive substring match on the advertised local name |
 | `manufacturer_blocklist` | `[]` | Bluetooth SIG company identifiers (AD type `0xFF`) |
 | `allow_homekit` | `true` | Exempt HomeKit (HAP) from `manufacturer_blocklist` |
+| `allow_ibeacon` | `false` | Exempt iBeacons from `manufacturer_blocklist` — `true` for all, or a list of `major`/`minor`/`rssi` filters |
 
 Filters run cheapest-first: `mac_blocklist` → `mac_allowlist` → `service_uuid_allowlist` →
 RSSI → non-resolvable → unresolved RPA → name/manufacturer payload scan.
@@ -110,7 +111,8 @@ bridge, and this component when a general-purpose proxy needs to shed noise.
 ## Diagnostics
 
 `get_adv_forwarded()`, `get_adv_dropped()`, `get_adv_dropped_rpa()`,
-`get_adv_allowed_service_uuid()` and `get_adv_dropped_floor()` expose per-proxy counters, so the effect is measurable rather
+`get_adv_allowed_service_uuid()`, `get_adv_dropped_floor()` and `get_adv_dropped_gate()`
+expose per-proxy counters, so the effect is measurable rather
 than guessed. Surface them as template sensors reporting the delta per update interval to see
 a rate.
 
@@ -121,6 +123,73 @@ which makes a failed commissioning attempt diagnosable instead of guesswork.
 rising value means `rssi_floor` is cutting a tracked tag — which is exactly when it needs
 revisiting.
 
+## Exempting iBeacons
+
+iBeacon is Apple manufacturer data with subtype `0x02`, so a
+`manufacturer_blocklist: [0x004C]` entry — the usual way to kill AirPods, AirTag and
+neighbour noise — silently takes **every iBeacon** with it. `allow_homekit` does not help:
+that exempts subtype `0x06`.
+
+This matters if your own ESPHome nodes beacon, for example for BLE positioning
+self-calibration: those adverts come from the node's public Espressif MAC, so they carry no
+IRK and nothing else rescues them.
+
+```yaml
+ble_advert_filter:
+  manufacturer_blocklist: [0x004C]
+  allow_ibeacon: true          # every iBeacon exempt
+```
+
+Scope it to your own beacons instead of opening the door to every iBeacon in radio range:
+
+```yaml
+  allow_ibeacon:
+    - major: 1
+      minor: 7                 # one probe
+    - major: 10
+      minor: [3, 4, 5]         # several
+    - major: 11                # whole major, any minor
+```
+
+Each filter can carry its own `rssi`, which **overrides both `rssi_threshold` and
+`rssi_floor`** for adverts it matches:
+
+```yaml
+  allow_ibeacon:
+    - major: 1
+      rssi: -127               # our probes: forward at any strength
+    - major: 10
+      rssi: -85
+```
+
+That is the point of the feature. Probe-to-probe ranging wants exactly the weak cross-room
+readings the fleet threshold exists to discard — and only for the beacons doing the ranging.
+
+**Omitting `rssi` inherits**: the filter exempts the advert from `manufacturer_blocklist`
+and nothing else, so `rssi_threshold` and `rssi_floor` still apply. Omitting a value is
+never the most permissive setting. A bare `allow_ibeacon: true` behaves the same way.
+
+`rssi: -127` disables the pre-gate below, so prefer a real value like `-95` unless you
+genuinely want everything.
+
+The filters **narrow** the exemption; they never add a drop rule. An iBeacon matching none
+of them falls through to the normal manufacturer test, exactly as if the exemption were
+off. A truncated iBeacon carrying no major/minor cannot be matched, so it is not exempted
+when filters are in use (bare `true` still exempts it).
+
+### The pre-gate
+
+Every advert is measured against *some* limit, so anything weaker than the most permissive
+limit in the config is dropped before categorisation runs. That keeps an AES resolve and a
+payload walk off every distant advert once your own beacons are allowed through at a low
+RSSI. It is computed automatically from `rssi_threshold`, `rssi_floor` and every
+per-category limit; a `-127` anywhere disables it, correctly — if something is allowed
+through at any strength, nothing can be rejected on RSSI alone.
+
+`get_adv_dropped_gate()` counts what it rejects, separately from
+`get_adv_dropped_floor()`: the gate means "too weak for **any** rule", the floor means "too
+weak for this category".
+
 ## Filter order
 
 An advertisement is **categorised first**, then measured against that category's own RSSI
@@ -128,11 +197,11 @@ limit, which is what makes the limits independent: any category can be looser or
 any other.
 
 1. `mac_blocklist` hit → drop, ahead of every allow rule
-2. RSSI below `rssi_floor` → drop. Global, applies to allowlisted devices too
+2. RSSI below the pre-gate → drop. Global, applies to allowlisted devices too
 3. Categorise, first hit wins, cheapest test first:
    `mac_allowlist` → `MAC` · RPA resolving to an IRK → `IRK`
-   (an RPA resolving to none → drop) · allowlisted service UUID → `UUID`
-   · anything else → `DEFAULT`
+   (an RPA resolving to none → drop) · matched iBeacon → `IBEACON`
+   · allowlisted service UUID → `UUID` · anything else → `DEFAULT`
 4. RSSI below **that category's** limit → drop
 5. `allowlist_exclusive` and `DEFAULT` → drop
 6. Non-resolvable private address (with `drop_non_resolvable`), unprotected → drop

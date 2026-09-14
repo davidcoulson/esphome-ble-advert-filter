@@ -63,6 +63,59 @@ bool BLEAdvertFilter::is_espressif_oui_(uint64_t addr) {
   return false;
 }
 
+bool BLEAdvertFilter::ibeacon_match_(const uint8_t *data, uint16_t len, int8_t *limit_out) const {
+  // Walks the AD structures looking for an iBeacon (Apple company id, subtype
+  // 0x02) that one of the configured filters accepts. Writes that filter's RSSI
+  // limit to limit_out (-127 = no limit) and returns true.
+  //
+  // Layout, indices relative to the length byte at data[i]:
+  //   i+1  0xFF          i+2..3  company (LE)   i+4  subtype 0x02
+  //   i+5  0x15          i+6..21 UUID (16)      i+22..23 major (BE)
+  //   i+24..25 minor (BE)                       i+26 measured power
+  // field_len covers type+payload, so a complete iBeacon is 26.
+  uint16_t i = 0;
+  while (i < len) {
+    const uint8_t field_len = data[i];
+    if (field_len == 0)
+      break;
+    if (static_cast<uint32_t>(i) + 1u + field_len > len)
+      break;
+    if (data[i + 1] == 0xFF && field_len >= 4) {
+      const uint16_t company = static_cast<uint16_t>(data[i + 2]) | (static_cast<uint16_t>(data[i + 3]) << 8);
+      if (company == 0x004C && data[i + 4] == 0x02) {
+        if (this->allow_ibeacon_) {
+          *limit_out = this->ibeacon_any_rssi_;
+          return true;
+        }
+        // Only a complete iBeacon carries major/minor, so a truncated one
+        // cannot be matched against a filter.
+        if (field_len < 26)
+          return false;
+        const uint16_t major = (static_cast<uint16_t>(data[i + 22]) << 8) | data[i + 23];
+        const uint16_t minor = (static_cast<uint16_t>(data[i + 24]) << 8) | data[i + 25];
+        // Exact major+minor wins over a whole-major rule, so a single probe can
+        // be given its own limit inside a fleet that shares one.
+        const uint32_t want = (static_cast<uint32_t>(major) << 16) | minor;
+        for (const auto &pr : this->ibeacon_pairs_) {
+          if (pr.key == want) {
+            *limit_out = pr.rssi;
+            return true;
+          }
+        }
+        for (const auto &mj : this->ibeacon_majors_) {
+          if (mj.key == major) {
+            *limit_out = mj.rssi;
+            return true;
+          }
+        }
+        return false;
+      }
+    }
+    i += field_len + 1;
+  }
+  return false;
+}
+
 bool BLEAdvertFilter::payload_blocked_(const uint8_t *data, uint16_t len) const {
   // AD structures are [length][type][payload...], length covering type+payload.
   // One pass checks both the local name and the manufacturer id so a dropped
@@ -276,6 +329,19 @@ void BLEAdvertFilter::dump_config() {
                 static_cast<unsigned>(this->service_uuid_allowlist_.size()),
                 static_cast<unsigned>(this->service_uuid128_.size()));
   ESP_LOGCONFIG(TAG, "  Allow HomeKit: %s", YESNO(this->allow_homekit_));
+  if (this->allow_ibeacon_) {
+    ESP_LOGCONFIG(TAG, "  All iBeacons exempt from manufacturer_blocklist (RSSI limit %d dB)", this->ibeacon_any_rssi_);
+  } else {
+    for (const auto &mj : this->ibeacon_majors_)
+      ESP_LOGCONFIG(TAG, "  iBeacon major %u (any minor): RSSI limit %d dB", static_cast<unsigned>(mj.key), mj.rssi);
+    for (const auto &pr : this->ibeacon_pairs_)
+      ESP_LOGCONFIG(TAG, "  iBeacon major %u minor %u: RSSI limit %d dB", static_cast<unsigned>(pr.key >> 16),
+                    static_cast<unsigned>(pr.key & 0xFFFF), pr.rssi);
+  }
+  if (this->rssi_floor_ != -127)
+    ESP_LOGCONFIG(TAG, "  Absolute RSSI floor: %d dBm", this->rssi_floor_);
+  if (this->min_rssi_gate_ != -127)
+    ESP_LOGCONFIG(TAG, "  Pre-gate drops anything below %d dBm", this->min_rssi_gate_);
   ESP_LOGCONFIG(TAG, "  Allowlist exclusive: %s", YESNO(this->allowlist_exclusive_));
 }
 
@@ -315,11 +381,17 @@ bool BLEAdvertFilter::should_forward(const ble_device_base::RawAdvertisement &ad
   //    distance tests: it is the cheapest, and it keeps the categoriser below
   //    from running on traffic no category would have kept anyway.
   //    -127 (default) disables it.
-  if (this->rssi_floor_ != -127 && adv.rssi < this->rssi_floor_) {
+  //    This gate is the LOOSEST limit any rule could apply (computed at codegen
+  //    from rssi_floor, rssi_threshold and every per-category limit), not
+  //    rssi_floor itself. rssi_floor is applied per-category below, because a
+  //    category with an explicit limit is allowed to override it - that is what
+  //    lets our own beacons through at any strength while tracked tags stay
+  //    bounded at the floor.
+  if (this->min_rssi_gate_ != -127 && adv.rssi < this->min_rssi_gate_) {
     this->adv_dropped_++;
-    this->adv_dropped_floor_++;
-    ESP_LOGVV(TAG, "Dropping packet from %012" PRIX64 ": RSSI %d dB below absolute floor %d dB", adv.address, adv.rssi,
-              this->rssi_floor_);
+    this->adv_dropped_gate_++;
+    ESP_LOGVV(TAG, "Dropping packet from %012" PRIX64 ": RSSI %d dB below pre-gate %d dB", adv.address, adv.rssi,
+              this->min_rssi_gate_);
     return false;
   }
 
@@ -327,7 +399,7 @@ bool BLEAdvertFilter::should_forward(const ble_device_base::RawAdvertisement &ad
   //    on the MAC allowlist is never also charged for an IRK resolution.
   //    protected_addr means "exempt from the payload filters at the end of the
   //    chain" and is set by every category except DEFAULT.
-  enum : uint8_t { CAT_DEFAULT, CAT_MAC, CAT_IRK, CAT_UUID } category = CAT_DEFAULT;
+  enum : uint8_t { CAT_DEFAULT, CAT_MAC, CAT_IRK, CAT_UUID, CAT_IBEACON } category = CAT_DEFAULT;
   bool protected_addr = false;
 
   for (const uint64_t allowed : this->mac_allowlist_) {
@@ -362,6 +434,23 @@ bool BLEAdvertFilter::should_forward(const ble_device_base::RawAdvertisement &ad
     }
   }
 
+  // Our own beacons. Placed after the RPA/IRK branch because that one is gated
+  // on two address bits and rejects most traffic before this payload walk runs;
+  // placed before the service-UUID walk because a matched iBeacon can carry its
+  // own RSSI limit and should not be measured against the fleet threshold.
+  int8_t ibeacon_limit = IBEACON_RSSI_INHERIT;
+  bool ibeacon_has_limit = false;
+  if (category == CAT_DEFAULT &&
+      (this->allow_ibeacon_ || !this->ibeacon_majors_.empty() || !this->ibeacon_pairs_.empty()) &&
+      this->ibeacon_match_(adv.data, adv.data_len, &ibeacon_limit)) {
+    category = CAT_IBEACON;
+    // A rule with no rssi of its own INHERITS: it only exempts the advert from
+    // the manufacturer blocklist and leaves the distance rules alone. Omitting
+    // a value must not silently be the most permissive setting.
+    ibeacon_has_limit = (ibeacon_limit != IBEACON_RSSI_INHERIT);
+    protected_addr = true;
+  }
+
   // Walks the payload, so it is last and is skipped entirely when unconfigured.
   // Exists for devices whose address cannot be known ahead of time: a device in
   // pairing mode advertises from a rotating private address, which the
@@ -387,6 +476,13 @@ bool BLEAdvertFilter::should_forward(const ble_device_base::RawAdvertisement &ad
   int8_t limit;
   const char *limit_name;
   switch (category) {
+    case CAT_IBEACON:
+      // The filter's own value, verbatim - it overrides rssi_floor too. With no
+      // value of its own the category falls back to rssi_threshold, and the
+      // floor below still applies, exactly like an unqualified device.
+      limit = ibeacon_has_limit ? ibeacon_limit : this->rssi_threshold_;
+      limit_name = "ibeacon";
+      break;
     case CAT_MAC:
       limit = this->rssi_mac_allowlist_;
       limit_name = "mac_allowlist";
@@ -404,8 +500,13 @@ bool BLEAdvertFilter::should_forward(const ble_device_base::RawAdvertisement &ad
       limit_name = "threshold";
       break;
   }
+  // rssi_floor still bounds every category that did NOT bring its own limit.
+  if (!ibeacon_has_limit && this->rssi_floor_ != -127 && (limit == -127 || this->rssi_floor_ > limit))
+    limit = this->rssi_floor_;
   if (limit != -127 && adv.rssi < limit) {
     this->adv_dropped_++;
+    if (limit == this->rssi_floor_ && this->rssi_floor_ != -127)
+      this->adv_dropped_floor_++;
     ESP_LOGVV(TAG, "Dropping packet from %012" PRIX64 ": RSSI %d dB below %s limit %d dB", adv.address, adv.rssi,
               limit_name, limit);
     return false;
