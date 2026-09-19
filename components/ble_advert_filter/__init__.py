@@ -15,7 +15,7 @@ from esphome.types import ConfigType
 # Read by the `component_version` text_sensor platform, if the user adds one.
 # A plain constant rather than a registration call, so this component needs no
 # dependency on it and there is no codegen ordering to get wrong.
-COMPONENT_VERSION = "2026.09.13.1"
+COMPONENT_VERSION = "2026.09.19.0"
 
 DEPENDENCIES = ["bluetooth_proxy"]
 CODEOWNERS = ["@davidcoulson"]
@@ -33,6 +33,7 @@ CONF_IRKS = "irks"
 CONF_ALLOW_ESPRESSIF = "allow_espressif"
 CONF_ALLOW_HOMEKIT = "allow_homekit"
 CONF_ALLOW_IBEACON = "allow_ibeacon"
+CONF_ALLOW_FINDMY = "allow_findmy"
 CONF_MAJOR = "major"
 CONF_MINOR = "minor"
 CONF_RSSI = "rssi"
@@ -103,6 +104,39 @@ _IBEACON_FILTER_SCHEMA = cv.Schema(
         ),
     }
 )
+
+
+# allow_findmy: `true` exempts Apple FindMy adverts (Offline Finding subtype
+# 0x12, and AirPods proximity-pairing subtype 0x07, which AirPods near their
+# owner send from the same rotated address) from manufacturer_blocklist and
+# nothing more; a mapping with `rssi` gives the rule its own limit, resolved
+# exactly like an iBeacon rule's (overrides rssi_threshold and rssi_floor for
+# the adverts it matches).
+_FINDMY_SCHEMA = cv.Schema(
+    {
+        cv.Optional(CONF_RSSI, default=_IBEACON_RSSI_INHERIT): cv.Any(
+            cv.int_range(min=_IBEACON_RSSI_INHERIT, max=_IBEACON_RSSI_INHERIT),
+            cv.int_range(min=-127, max=0),
+        ),
+    }
+)
+
+
+def _validate_allow_findmy(value: bool | ConfigType) -> bool | ConfigType:
+    if isinstance(value, bool):
+        return value
+    return _FINDMY_SCHEMA(value)
+
+
+def _findmy_to_code(var: cg.MockObj, config: ConfigType) -> list[int]:
+    """Emit the allow_findmy config; returns the RSSI limits it introduced."""
+    value = config[CONF_ALLOW_FINDMY]
+    if value is False:
+        return []
+    cg.add(var.set_allow_findmy(True))
+    rssi = _IBEACON_RSSI_INHERIT if value is True else value[CONF_RSSI]
+    cg.add(var.set_findmy_rssi(rssi))
+    return [rssi]
 
 
 def _validate_allow_ibeacon(value: bool | list[ConfigType]) -> bool | list[ConfigType]:
@@ -258,6 +292,9 @@ CONFIG_SCHEMA = cv.Schema(
         # an iBeacon is usually exactly the noise the blocklist is there to
         # kill. Turn it on when something you own beacons.
         cv.Optional(CONF_ALLOW_IBEACON, default=False): _validate_allow_ibeacon,
+        # FindMy accessories (AirTags, AirPods, licensed tags) are Apple
+        # manufacturer data too, from a random static address no IRK resolves.
+        cv.Optional(CONF_ALLOW_FINDMY, default=False): _validate_allow_findmy,
         cv.Optional(CONF_DROP_NON_RESOLVABLE, default=False): cv.boolean,
         cv.Optional(CONF_NAME_BLOCKLIST, default=[]): cv.ensure_list(
             cv.All(cv.string_strict, cv.Length(min=1, max=29))
@@ -292,7 +329,9 @@ async def to_code(config: ConfigType) -> None:
     cg.add(var.set_rssi_threshold(config[CONF_RSSI_THRESHOLD]))
     cg.add(var.set_rssi_floor(config[CONF_RSSI_FLOOR]))
     cg.add(var.set_rssi_mac_allowlist(config[CONF_RSSI_MAC_ALLOWLIST]))
-    _min_rssi_gate_to_code(var, config, _ibeacon_to_code(var, config))
+    _min_rssi_gate_to_code(
+        var, config, _ibeacon_to_code(var, config) + _findmy_to_code(var, config)
+    )
     cg.add(var.set_rssi_irk(config[CONF_RSSI_IRK]))
     cg.add(var.set_rssi_service_uuid(config[CONF_RSSI_SERVICE_UUID]))
     cg.add(var.set_allow_espressif(config[CONF_ALLOW_ESPRESSIF]))

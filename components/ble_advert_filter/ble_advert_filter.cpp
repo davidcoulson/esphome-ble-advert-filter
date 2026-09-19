@@ -3,6 +3,7 @@
 #include "esphome/components/ble_device_base/ble_aes_ccm.h"
 #include "esphome/core/log.h"
 
+#include <algorithm>
 #include <cctype>
 #include <cinttypes>
 #include <cstring>
@@ -59,6 +60,34 @@ bool BLEAdvertFilter::is_espressif_oui_(uint64_t addr) {
     } else {
       return true;
     }
+  }
+  return false;
+}
+
+bool BLEAdvertFilter::findmy_match_(const uint8_t *data, uint16_t len) const {
+  // Apple Offline Finding: manufacturer data, company 0x004C, subtype 0x12.
+  // The rest of the payload (status byte, 22 bytes of public key) carries no
+  // identity a proxy could act on - the address rotation is only resolvable
+  // with the accessory's keys, which live in the tracker, not here.
+  //
+  // Subtype 0x07 is AirPods proximity pairing - the advert that raises the
+  // AirPods card on a nearby iPhone. AirPods near their owner send that
+  // instead of 0x12, but from the SAME FindMy-rotated address, so a tracker
+  // holding the keys resolves it just as well. Without this an owned AirPods
+  // case is heard only by receivers that do not run the Apple blocklist.
+  uint16_t i = 0;
+  while (i < len) {
+    const uint8_t field_len = data[i];
+    if (field_len == 0)
+      break;
+    if (static_cast<uint32_t>(i) + 1u + field_len > len)
+      break;
+    if (data[i + 1] == 0xFF && field_len >= 4) {
+      const uint16_t company = static_cast<uint16_t>(data[i + 2]) | (static_cast<uint16_t>(data[i + 3]) << 8);
+      if (company == 0x004C && (data[i + 4] == 0x12 || data[i + 4] == 0x07))
+        return true;
+    }
+    i += field_len + 1;
   }
   return false;
 }
@@ -271,6 +300,41 @@ bool BLEAdvertFilter::address_is_non_resolvable_(uint64_t addr, uint8_t addr_typ
   return (((addr >> 40) & 0xC0) == 0x00);
 }
 
+int BLEAdvertFilter::set_irks(const std::string &text) {
+  // Parse into a scratch vector first so a bad input never leaves the live
+  // list half-replaced.
+  std::vector<std::array<uint8_t, 16>> parsed;
+  const size_t n = text.size();
+  size_t i = 0;
+  while (i < n) {
+    if (!isxdigit(static_cast<unsigned char>(text[i]))) {
+      i++;
+      continue;
+    }
+    size_t j = i;
+    while (j < n && isxdigit(static_cast<unsigned char>(text[j])))
+      j++;
+    // Exactly 32: a longer run is not a key with a suffix, it is something
+    // else entirely (a hash, a UUID without dashes) and must not be truncated
+    // into one.
+    if (j - i == 32) {
+      std::array<uint8_t, 16> irk{};
+      if (parse_hex(text.c_str() + i, 32, irk.data(), 16) == 32 &&
+          std::find(parsed.begin(), parsed.end(), irk) == parsed.end())
+        parsed.push_back(irk);
+    }
+    i = j;
+  }
+  if (parsed.empty()) {
+    ESP_LOGW(TAG, "set_irks: no 32-hex-character keys found, keeping the current %u",
+             static_cast<unsigned>(this->irks_.size()));
+    return -1;
+  }
+  this->irks_ = std::move(parsed);
+  ESP_LOGI(TAG, "Loaded %u IRK(s) at runtime", static_cast<unsigned>(this->irks_.size()));
+  return static_cast<int>(this->irks_.size());
+}
+
 bool BLEAdvertFilter::irk_matches_(uint64_t addr) const {
   // Bluetooth Core "ah": hash = e(IRK, 0-padding | prand)[low 24 bits], where
   // the RPA is prand (top 3 bytes) | hash (bottom 3 bytes).
@@ -329,6 +393,13 @@ void BLEAdvertFilter::dump_config() {
                 static_cast<unsigned>(this->service_uuid_allowlist_.size()),
                 static_cast<unsigned>(this->service_uuid128_.size()));
   ESP_LOGCONFIG(TAG, "  Allow HomeKit: %s", YESNO(this->allow_homekit_));
+  if (this->allow_findmy_) {
+    if (this->findmy_rssi_ != IBEACON_RSSI_INHERIT) {
+      ESP_LOGCONFIG(TAG, "  FindMy exempt from manufacturer_blocklist (RSSI limit %d dB)", this->findmy_rssi_);
+    } else {
+      ESP_LOGCONFIG(TAG, "  FindMy exempt from manufacturer_blocklist");
+    }
+  }
   if (this->allow_ibeacon_) {
     ESP_LOGCONFIG(TAG, "  All iBeacons exempt from manufacturer_blocklist (RSSI limit %d dB)", this->ibeacon_any_rssi_);
   } else {
@@ -399,7 +470,7 @@ bool BLEAdvertFilter::should_forward(const ble_device_base::RawAdvertisement &ad
   //    on the MAC allowlist is never also charged for an IRK resolution.
   //    protected_addr means "exempt from the payload filters at the end of the
   //    chain" and is set by every category except DEFAULT.
-  enum : uint8_t { CAT_DEFAULT, CAT_MAC, CAT_IRK, CAT_UUID, CAT_IBEACON } category = CAT_DEFAULT;
+  enum : uint8_t { CAT_DEFAULT, CAT_MAC, CAT_IRK, CAT_UUID, CAT_IBEACON, CAT_FINDMY } category = CAT_DEFAULT;
   bool protected_addr = false;
 
   for (const uint64_t allowed : this->mac_allowlist_) {
@@ -451,6 +522,16 @@ bool BLEAdvertFilter::should_forward(const ble_device_base::RawAdvertisement &ad
     protected_addr = true;
   }
 
+  // FindMy accessories: same shape of rule as an iBeacon (a manufacturer-data
+  // subtype exempted from the Apple blocklist, optionally with its own RSSI
+  // limit), same place in the chain.
+  bool findmy_has_limit = false;
+  if (category == CAT_DEFAULT && this->allow_findmy_ && this->findmy_match_(adv.data, adv.data_len)) {
+    category = CAT_FINDMY;
+    findmy_has_limit = (this->findmy_rssi_ != IBEACON_RSSI_INHERIT);
+    protected_addr = true;
+  }
+
   // Walks the payload, so it is last and is skipped entirely when unconfigured.
   // Exists for devices whose address cannot be known ahead of time: a device in
   // pairing mode advertises from a rotating private address, which the
@@ -483,6 +564,10 @@ bool BLEAdvertFilter::should_forward(const ble_device_base::RawAdvertisement &ad
       limit = ibeacon_has_limit ? ibeacon_limit : this->rssi_threshold_;
       limit_name = "ibeacon";
       break;
+    case CAT_FINDMY:
+      limit = findmy_has_limit ? this->findmy_rssi_ : this->rssi_threshold_;
+      limit_name = "findmy";
+      break;
     case CAT_MAC:
       limit = this->rssi_mac_allowlist_;
       limit_name = "mac_allowlist";
@@ -501,7 +586,8 @@ bool BLEAdvertFilter::should_forward(const ble_device_base::RawAdvertisement &ad
       break;
   }
   // rssi_floor still bounds every category that did NOT bring its own limit.
-  if (!ibeacon_has_limit && this->rssi_floor_ != -127 && (limit == -127 || this->rssi_floor_ > limit))
+  if (!ibeacon_has_limit && !findmy_has_limit && this->rssi_floor_ != -127 &&
+      (limit == -127 || this->rssi_floor_ > limit))
     limit = this->rssi_floor_;
   if (limit != -127 && adv.rssi < limit) {
     this->adv_dropped_++;

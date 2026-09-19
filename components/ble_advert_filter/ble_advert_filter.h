@@ -5,6 +5,7 @@
 #include "esphome/components/bluetooth_proxy/bluetooth_proxy.h"
 
 #include <array>
+#include <string>
 #include <vector>
 
 namespace esphome::ble_advert_filter {
@@ -103,7 +104,45 @@ class BLEAdvertFilter : public Component {
   void set_allow_espressif(bool allow) { this->allow_espressif_ = allow; }
   void set_drop_non_resolvable(bool drop) { this->drop_non_resolvable_ = drop; }
   void set_allow_homekit(bool allow) { this->allow_homekit_ = allow; }
+  /// Exempt Apple FindMy (Offline Finding) advertisements from
+  /// manufacturer_blocklist: AirTags, AirPods and licensed third-party tags
+  /// advertise Apple's company id with subtype 0x12 (or, for AirPods near
+  /// their owner, proximity-pairing subtype 0x07 on the same rotated address)
+  /// from a random static address, so neither the IRK test nor
+  /// drop_non_resolvable sees them and only the Apple blocklist entry stands
+  /// in their way. Needed
+  /// by a tracker that knows an accessory's pairing keys (Bermuda's FindMy
+  /// support) and can therefore follow its address rotation. Every passing
+  /// AirTag comes through too, which is why the rule can carry its own RSSI
+  /// limit (set_findmy_rssi), resolved exactly like an iBeacon rule's.
+  void set_allow_findmy(bool allow) { this->allow_findmy_ = allow; }
+  void set_findmy_rssi(int8_t rssi) { this->findmy_rssi_ = rssi; }
   void set_irks_hex(const char *hex) { this->irks_hex_ = hex; }
+  /// Replace the IRK list at runtime - typically from a Home Assistant entity,
+  /// so a new phone does not mean reflashing every proxy.
+  ///
+  /// Every run of EXACTLY 32 hex characters in `text` is taken as a key and
+  /// everything else is ignored. That makes the format forgiving on purpose:
+  /// commas, newlines, quotes, "label: key" pairs and the braces of a
+  /// stringified dict all work, which lets the Home Assistant side keep a name
+  /// next to each key. The one rule is that no label may itself contain 32
+  /// consecutive hex digits. Duplicates are dropped.
+  ///
+  /// Returns the number of keys installed. If `text` contains NO valid key the
+  /// current list is left untouched and -1 is returned: an entity that is
+  /// briefly unavailable (e.g. during a Home Assistant restart) must not be
+  /// able to wipe the list, because with a manufacturer blocklist active that
+  /// would silently drop our own phones. Use clear_irks() to empty it on purpose.
+  ///
+  /// Safe to call at any time: advertisements and API state updates are both
+  /// dispatched from the main loop, so the list is never swapped mid-lookup.
+  int set_irks(const std::string &text);
+  /// Deliberately empty the IRK list, which turns IRK gating off entirely.
+  void clear_irks() { this->irks_.clear(); }
+  size_t get_irk_count() const { return this->irks_.size(); }
+  /// The live list, read-only - so a YAML lambda can persist the last good
+  /// list to flash and restore it before Home Assistant connects.
+  const std::vector<std::array<uint8_t, 16>> &get_irks() const { return this->irks_; }
   void add_blocked_name(const char *needle) { this->name_blocklist_.push_back(needle); }
   void add_blocked_manufacturer(uint16_t company) { this->manufacturer_blocklist_.push_back(company); }
   /// Address that bypasses every filter.
@@ -155,6 +194,7 @@ class BLEAdvertFilter : public Component {
   /// True when the advert is an iBeacon accepted by a configured filter;
   /// writes that filter's RSSI limit to limit_out.
   bool ibeacon_match_(const uint8_t *data, uint16_t len, int8_t *limit_out) const;
+  bool findmy_match_(const uint8_t *data, uint16_t len) const;
   bool payload_has_allowed_service_uuid_(const uint8_t *data, uint16_t len) const;
   bool uuid128_matches_(const uint8_t *le_bytes) const;
 
@@ -201,6 +241,8 @@ class BLEAdvertFilter : public Component {
   bool allow_homekit_{true};
   bool allow_ibeacon_{false};
   int8_t ibeacon_any_rssi_{-127};
+  bool allow_findmy_{false};
+  int8_t findmy_rssi_{IBEACON_RSSI_INHERIT};
   int8_t min_rssi_gate_{-127};
   bool allowlist_exclusive_{false};
 };
