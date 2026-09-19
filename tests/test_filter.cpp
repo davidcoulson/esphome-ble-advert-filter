@@ -61,9 +61,13 @@ Bytes apple(uint8_t subtype, size_t extra = 4) {
   p.insert(p.end(), extra, 0xAB);
   return ad(0xFF, p);
 }
-Bytes ibeacon(uint16_t major, uint16_t minor) {
+// The fleet's probe UUID, fde3b150-2f64-43ba-aee9-867f75ee4a6f, and a vendor default.
+const char *OUR_UUID = "fde3b1502f6443baaee9867f75ee4a6f";
+const Bytes OUR_UUID_BYTES{0xfd, 0xe3, 0xb1, 0x50, 0x2f, 0x64, 0x43, 0xba, 0xae, 0xe9, 0x86, 0x7f, 0x75, 0xee, 0x4a, 0x6f};
+const Bytes VENDOR_UUID_BYTES{0xe2, 0xc5, 0x6d, 0xb5, 0xdf, 0xfb, 0x48, 0xd2, 0xb0, 0x60, 0xd0, 0xf5, 0xa7, 0x10, 0x96, 0xe0};
+Bytes ibeacon(uint16_t major, uint16_t minor, const Bytes &uuid = Bytes(16, 0x11)) {
   Bytes p{0x4C, 0x00, 0x02, 0x15};
-  p.insert(p.end(), 16, 0x11);  // UUID
+  p.insert(p.end(), uuid.begin(), uuid.end());
   p.push_back(major >> 8); p.push_back(major & 0xff);
   p.push_back(minor >> 8); p.push_back(minor & 0xff);
   p.push_back(0xC5);            // measured power
@@ -102,7 +106,7 @@ void fleet_config(Fixture &x) {
   x.f.set_allow_findmy(true);
   x.f.set_findmy_rssi(-85);
   x.f.set_allow_ibeacon(false);
-  x.f.add_ibeacon_major(1, -95);
+  x.f.add_ibeacon_rule(OUR_UUID, 1, -1, -95);
   x.f.add_allowed_mac(0xE3AC06854000ULL);
   x.f.add_allowed_service_uuid(0xFFF6);
   x.f.add_allowed_service_uuid(0xFEED);
@@ -221,10 +225,10 @@ int main() {
   std::printf("\n== iBeacon rules ==\n");
   {
     Fixture x; fleet_config(x);
-    check(x.fwd(0x246F28AABBCCULL, PUBLIC, -94, FLAGS + ibeacon(1, 1)), "our probes (major 1) are forwarded at -95, overriding the -90 floor");
-    check(!x.fwd(0x246F28AABBCCULL, PUBLIC, -96, FLAGS + ibeacon(1, 1)), "but not below the rule's own limit");
-    check(!x.fwd(0x246F28AABBCCULL, PUBLIC, -50, FLAGS + ibeacon(2, 1)), "another major is still Apple noise");
-    Bytes cut = ibeacon(1, 1); cut.resize(cut.size() - 4); cut[0] -= 4;
+    check(x.fwd(0x246F28AABBCCULL, PUBLIC, -94, FLAGS + ibeacon(1, 1, OUR_UUID_BYTES)), "our probes (our uuid, major 1) are forwarded at -95, overriding the -90 floor");
+    check(!x.fwd(0x246F28AABBCCULL, PUBLIC, -96, FLAGS + ibeacon(1, 1, OUR_UUID_BYTES)), "but not below the rule's own limit");
+    check(!x.fwd(0x246F28AABBCCULL, PUBLIC, -50, FLAGS + ibeacon(2, 1, OUR_UUID_BYTES)), "another major is still Apple noise");
+    Bytes cut = ibeacon(1, 1, OUR_UUID_BYTES); cut.resize(cut.size() - 4); cut[0] -= 4;
     check(!x.fwd(0x246F28AABBCCULL, PUBLIC, -50, FLAGS + cut), "a truncated iBeacon cannot match a major rule");
   }
   {
@@ -236,6 +240,58 @@ int main() {
     Fixture x; x.f.set_rssi_threshold(-75); x.f.set_rssi_floor(-90); x.f.add_blocked_manufacturer(0x004C);
     x.f.add_ibeacon_major(1, BLEAdvertFilter::IBEACON_RSSI_INHERIT); x.f.setup();
     check(x.fwd(STATIC_ADDR, RANDOM, -75, ibeacon(1, 1)) && !x.fwd(STATIC_ADDR, RANDOM, -76, ibeacon(1, 1)), "a rule with no rssi only lifts the blocklist; the threshold still applies");
+  }
+
+  std::printf("\n== iBeacon rules scoped by UUID ==\n");
+  {
+    // Why uuid exists: major 1 alone admits anybody's beacon left on its defaults.
+    Fixture x; x.f.set_rssi_threshold(-75); x.f.set_rssi_floor(-90); x.f.add_blocked_manufacturer(0x004C);
+    x.f.add_ibeacon_major(1, -95); x.f.setup();
+    check(x.fwd(STATIC_ADDR, RANDOM, -94, ibeacon(1, 1, VENDOR_UUID_BYTES)), "an unscoped major rule matches ANY uuid (the behaviour being fixed)");
+  }
+  {
+    Fixture x; x.f.set_rssi_threshold(-75); x.f.set_rssi_floor(-90); x.f.add_blocked_manufacturer(0x004C);
+    x.f.add_ibeacon_rule(OUR_UUID, 1, -1, -95); x.f.setup();
+    check(x.fwd(STATIC_ADDR, RANDOM, -94, ibeacon(1, 1, OUR_UUID_BYTES)), "uuid + major: our probe is forwarded at its own -95 limit");
+    check(!x.fwd(STATIC_ADDR, RANDOM, -50, ibeacon(1, 1, VENDOR_UUID_BYTES)), "somebody else's major 1 is Apple noise again, however close");
+    check(!x.fwd(STATIC_ADDR, RANDOM, -50, ibeacon(2, 1, OUR_UUID_BYTES)), "our uuid with another major does not match a uuid+major rule");
+    Bytes flipped = OUR_UUID_BYTES; flipped[15] ^= 0x01;
+    check(!x.fwd(STATIC_ADDR, RANDOM, -50, ibeacon(1, 1, flipped)), "one bit off in the uuid does not match");
+    check(x.f.get_min_rssi_gate() == -95, "the rule still opens the pre-gate to its limit");
+  }
+  {
+    Fixture x; x.f.set_rssi_threshold(-75); x.f.set_rssi_floor(-90); x.f.add_blocked_manufacturer(0x004C);
+    x.f.add_ibeacon_rule(OUR_UUID, -1, -1, -85); x.f.setup();
+    check(x.fwd(STATIC_ADDR, RANDOM, -84, ibeacon(7, 9, OUR_UUID_BYTES)) && !x.fwd(STATIC_ADDR, RANDOM, -84, ibeacon(7, 9, VENDOR_UUID_BYTES)),
+          "a uuid-only rule covers every major/minor of that uuid, and nothing else");
+  }
+  {
+    // Most specific wins, whatever order the rules were added in.
+    Fixture x; x.f.set_rssi_threshold(-75); x.f.set_rssi_floor(-90); x.f.add_blocked_manufacturer(0x004C);
+    x.f.add_ibeacon_rule(OUR_UUID, -1, -1, -90);   // uuid only
+    x.f.add_ibeacon_major(1, -60);                  // major only, any uuid
+    x.f.add_ibeacon_rule(OUR_UUID, 1, -1, -80);    // uuid + major
+    x.f.add_ibeacon_rule(OUR_UUID, 1, 7, -70);     // uuid + major + minor
+    x.f.setup();
+    check(x.fwd(STATIC_ADDR, RANDOM, -69, ibeacon(1, 7, OUR_UUID_BYTES)) && !x.fwd(STATIC_ADDR, RANDOM, -71, ibeacon(1, 7, OUR_UUID_BYTES)), "uuid+major+minor wins (-70)");
+    check(x.fwd(STATIC_ADDR, RANDOM, -79, ibeacon(1, 8, OUR_UUID_BYTES)) && !x.fwd(STATIC_ADDR, RANDOM, -81, ibeacon(1, 8, OUR_UUID_BYTES)), "then uuid+major beats an unscoped major (-80, not -60)");
+    check(x.fwd(STATIC_ADDR, RANDOM, -60, ibeacon(1, 8, VENDOR_UUID_BYTES)) && !x.fwd(STATIC_ADDR, RANDOM, -61, ibeacon(1, 8, VENDOR_UUID_BYTES)), "a foreign uuid falls to the unscoped major rule (-60)");
+    check(x.fwd(STATIC_ADDR, RANDOM, -89, ibeacon(5, 5, OUR_UUID_BYTES)), "and our uuid on another major falls to the uuid-only rule (-90)");
+  }
+  {
+    Fixture x; x.f.set_rssi_threshold(-75); x.f.add_blocked_manufacturer(0x004C);
+    x.f.add_ibeacon_rule("not-a-uuid", 1, -1, -95);
+    x.f.add_ibeacon_rule("fde3b150", 1, -1, -95);
+    x.f.add_ibeacon_rule(nullptr, -1, -1, -95);
+    x.f.setup();
+    check(!x.fwd(STATIC_ADDR, RANDOM, -50, ibeacon(1, 1, OUR_UUID_BYTES)), "a rule whose uuid does not parse is dropped - it never widens to 'any uuid'");
+    check(x.f.get_min_rssi_gate() == -75, "and contributes nothing to the gate");
+  }
+  {
+    Fixture x; x.f.set_rssi_threshold(-75); x.f.add_blocked_manufacturer(0x004C);
+    x.f.add_ibeacon_rule(nullptr, 1, 7, -95); x.f.setup();  // still fine: major+minor, any uuid
+    Bytes cut = ibeacon(1, 7, OUR_UUID_BYTES); cut.resize(10); cut[0] = 9;
+    check(!x.fwd(STATIC_ADDR, RANDOM, -50, cut), "a truncated iBeacon (no full uuid) cannot match");
   }
 
   std::printf("\n== service UUID passthrough ==\n");
@@ -320,6 +376,7 @@ int main() {
         if (std::rand() % 2) x->f.add_allowed_service_uuid(0xFFF6);
         if (std::rand() % 2) x->f.add_blocked_manufacturer(0x004C);
         if (std::rand() % 2) x->f.add_ibeacon_major(1, std::rand() % 2 ? pick() : BLEAdvertFilter::IBEACON_RSSI_INHERIT);
+        if (std::rand() % 2) x->f.add_ibeacon_rule(OUR_UUID, std::rand() % 2 ? 1 : -1, -1, std::rand() % 2 ? pick() : BLEAdvertFilter::IBEACON_RSSI_INHERIT);
         if (std::rand() % 3 == 0) { x->f.set_allow_ibeacon(true); x->f.set_ibeacon_any_rssi(std::rand() % 2 ? pick() : BLEAdvertFilter::IBEACON_RSSI_INHERIT); }
         if (std::rand() % 2) { x->f.set_allow_findmy(true); x->f.set_findmy_rssi(std::rand() % 2 ? pick() : BLEAdvertFilter::IBEACON_RSSI_INHERIT); }
         x->f.set_drop_non_resolvable(std::rand() % 2);
@@ -327,7 +384,7 @@ int main() {
       }
       b.f.disable_gate();
       const uint64_t addrs[] = {STATIC_ADDR, NRPA_ADDR, STRANGER_RPA, SPEC_RPA};
-      const Bytes payloads[] = {FLAGS, apple(0x10), apple(0x12, 25), ibeacon(1, 1), ibeacon(2, 2), uuid16_list(0xFFF6)};
+      const Bytes payloads[] = {FLAGS, apple(0x10), apple(0x12, 25), ibeacon(1, 1), ibeacon(2, 2), ibeacon(1, 1, OUR_UUID_BYTES), ibeacon(3, 3, OUR_UUID_BYTES), uuid16_list(0xFFF6)};
       for (uint64_t addr : addrs)
         for (const Bytes &p : payloads)
           for (int rssi = -100; rssi <= -55; rssi += 3) {
