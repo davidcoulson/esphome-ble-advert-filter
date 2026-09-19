@@ -64,9 +64,9 @@ ble_advert_filter:
 | `manufacturer_blocklist` | `[]` | Bluetooth SIG company identifiers (AD type `0xFF`) |
 | `allow_homekit` | `true` | Exempt HomeKit (HAP) from `manufacturer_blocklist` |
 | `allow_ibeacon` | `false` | Exempt iBeacons from `manufacturer_blocklist` — `true` for all, or a list of `major`/`minor`/`rssi` filters |
+| `allow_findmy` | `false` | Exempt Apple FindMy accessories (AirTags, AirPods, licensed tags) from `manufacturer_blocklist` — `true`, or `{rssi: N}` to give them their own limit |
 
-Filters run cheapest-first: `mac_blocklist` → `mac_allowlist` → `service_uuid_allowlist` →
-RSSI → non-resolvable → unresolved RPA → name/manufacturer payload scan.
+The order the filters run in, and why, is under [Filter order](#filter-order).
 
 ## Three options that exist to stop the others breaking things silently
 
@@ -110,7 +110,7 @@ bridge, and this component when a general-purpose proxy needs to shed noise.
 
 ## Diagnostics
 
-`get_adv_forwarded()`, `get_adv_dropped()`, `get_adv_dropped_rpa()`,
+`get_adv_forwarded()`, `get_adv_dropped()`, `get_adv_dropped_rpa()`, `get_adv_forwarded_irk()`,
 `get_adv_allowed_service_uuid()`, `get_adv_dropped_floor()` and `get_adv_dropped_gate()`
 expose per-proxy counters, so the effect is measurable rather
 than guessed. Surface them as template sensors reporting the delta per update interval to see
@@ -119,9 +119,77 @@ a rate.
 `get_adv_allowed_service_uuid()` sits at zero unless the service-UUID bypass actually fired,
 which makes a failed commissioning attempt diagnosable instead of guesswork.
 
+`get_adv_forwarded_irk()` counts advertisements forwarded because their address resolved to one
+of your IRKs. It is the only way to tell a wrong key from an absent phone: a key that never
+matches leaves it flat while its owner's adverts are counted by `get_adv_dropped_rpa()` as
+somebody else's. `get_irk_count()` is how many keys are loaded.
+
 `get_adv_dropped_floor()` is the one counter that can include otherwise protected devices, so a
 rising value means `rssi_floor` is cutting a tracked tag — which is exactly when it needs
 revisiting.
+
+## Changing IRKs without reflashing
+
+`irks:` is compile-time, so on its own a new phone means reflashing every
+proxy. `set_irks()` replaces the list at runtime; the usual source is a Home
+Assistant entity each proxy subscribes to:
+
+```yaml
+text_sensor:
+  - platform: homeassistant
+    entity_id: sensor.ble_proxy_irks
+    attribute: irks            # an attribute: HA caps states at 255 characters
+    internal: true
+    on_value:
+      - lambda: 'id(ble_proxy).set_irks(x);'
+```
+
+The parser takes every run of **exactly 32 hex characters** and ignores the
+rest, so the Home Assistant side can keep a name next to each key -
+`David phone: 0011...`, or a stringified dict - and a replacement is an edit
+to one named line. The only rule is that no label contains 32 consecutive hex
+digits. Runs of 31 or 33 are rejected rather than trimmed, and two keys with
+no separator between them (64 digits) are rejected rather than split.
+
+**Input with no valid key leaves the current list untouched** and returns
+`-1`. An entity that is briefly `unavailable` during a Home Assistant restart
+must not be able to wipe the list: with `manufacturer_blocklist: [0x004C]` a
+wiped list silently drops your own phones. `clear_irks()` empties it on
+purpose.
+
+The compile-time list still loads in `setup()`; `set_irks()` replaces it, it
+does not merge. `get_irks()` exposes the live list read-only so a lambda can
+persist it to flash for use before Home Assistant connects. Calls are safe at
+any time - advertisements and API state updates are both dispatched from the
+main loop, so the list is never swapped mid-lookup.
+
+## Exempting FindMy accessories
+
+AirTags, AirPods and licensed third-party FindMy tags advertise Apple
+manufacturer data with the Offline Finding subtype `0x12`, from a random
+static address. AirPods near their owner send the proximity-pairing subtype
+`0x07` instead - the advert that raises the AirPods card on an iPhone - but
+from the same rotated address, so `allow_findmy` exempts that subtype too.
+Without it an AirPods case sitting on a desk is heard only by receivers that
+run no Apple blocklist. Neither the IRK test nor `drop_non_resolvable`
+touches them, so with `manufacturer_blocklist: [0x004C]` the Apple entry is
+the only thing dropping them - and it drops every one. A tracker that holds an
+accessory's pairing keys (Bermuda's FindMy support) can follow its address
+rotation, but only if the adverts reach it:
+
+```yaml
+ble_advert_filter:
+  manufacturer_blocklist: [0x004C]
+  allow_findmy: true            # inherits rssi_threshold, bounded by rssi_floor
+  # or, with its own limit (overrides both, like an iBeacon rule):
+  allow_findmy:
+    rssi: -85
+```
+
+There is no per-accessory scoping: the advert carries no identity a proxy
+could act on (the key material that resolves the rotation lives in the
+tracker), so every FindMy accessory in range comes through. Bound it with
+`rssi` rather than the fleet threshold when neighbours' tags are the concern.
 
 ## Exempting iBeacons
 
@@ -182,9 +250,16 @@ when filters are in use (bare `true` still exempts it).
 Every advert is measured against *some* limit, so anything weaker than the most permissive
 limit in the config is dropped before categorisation runs. That keeps an AES resolve and a
 payload walk off every distant advert once your own beacons are allowed through at a low
-RSSI. It is computed automatically from `rssi_threshold`, `rssi_floor` and every
-per-category limit; a `-127` anywhere disables it, correctly — if something is allowed
-through at any strength, nothing can be rejected on RSSI alone.
+RSSI. It is derived automatically from `rssi_threshold`, `rssi_floor`, every per-category
+limit and every rule that brings its own — but only for categories something can actually
+land in: with no `mac_allowlist` there is no allowlisted advert for the gate to protect, so
+that category does not hold it open. A reachable category with no bound at all disables it,
+correctly — if something is allowed through at any strength, nothing can be rejected on RSSI
+alone.
+
+It is recomputed whenever a limit or list changes, **including at runtime**. It used to be
+computed once at codegen, so a Home Assistant number lowering `rssi_threshold` below the
+compiled gate silently stopped working. `get_min_rssi_gate()` reports the current value.
 
 `get_adv_dropped_gate()` counts what it rejects, separately from
 `get_adv_dropped_floor()`: the gate means "too weak for **any** rule", the floor means "too
@@ -199,9 +274,13 @@ any other.
 1. `mac_blocklist` hit → drop, ahead of every allow rule
 2. RSSI below the pre-gate → drop. Global, applies to allowlisted devices too
 3. Categorise, first hit wins, cheapest test first:
-   `mac_allowlist` → `MAC` · RPA resolving to an IRK → `IRK`
-   (an RPA resolving to none → drop) · matched iBeacon → `IBEACON`
-   · allowlisted service UUID → `UUID` · anything else → `DEFAULT`
+   `mac_allowlist` → `MAC` · RPA resolving to an IRK → `IRK` · matched iBeacon → `IBEACON`
+   · FindMy (with `allow_findmy`) → `FINDMY` · allowlisted service UUID → `UUID`
+   · anything else → `DEFAULT`
+   An RPA that resolved to **none** of your IRKs is dropped here, regardless of RSSI — but
+   only if no other rule claimed it. It used to be dropped before the payload rules ran,
+   which meant `service_uuid_allowlist` could not rescue a device pairing from a resolvable
+   address, the case it exists for.
 4. RSSI below **that category's** limit → drop
 5. `allowlist_exclusive` and `DEFAULT` → drop
 6. Non-resolvable private address (with `drop_non_resolvable`), unprotected → drop
@@ -219,16 +298,65 @@ it. `rssi_floor` bounds the exemption without removing it.
 An unset (`-127`) category limit **inherits**, chosen so a config that sets none of them behaves
 exactly as it did before these existed: `mac_allowlist` is bounded only by `rssi_floor`; `irk`
 and `service_uuid` inherit `rssi_threshold`. Configuration validation rejects a floor above
-`rssi_threshold`, and a category limit below the floor (which could never fire).
+`rssi_threshold` (when one is set — a floor on its own is fine), and a category limit below the
+floor (which could never fire).
 
 ## Caveats
 
 - **Passive scanning loses local names.** If your tracker runs `active: false`, scan responses
   are gone and many devices put their local name only there — so Home Assistant may not be able
   to discover a *new* BLE device at all. Switch to active scanning while onboarding.
-- **A changed IRK is invisible.** IRKs are regenerated when a phone is erased and restored.
-  That phone silently stops resolving and its tracker sticks at `not_home`. Alert on it by
-  comparing against a non-BLE presence source.
+- **A changed IRK is nearly invisible.** IRKs are regenerated when a phone is erased and
+  restored. That phone silently stops resolving and its tracker sticks at `not_home`.
+  `get_adv_forwarded_irk()` going flat while the phone is home is the on-device sign; otherwise
+  compare against a non-BLE presence source. Replacing the key needs no reflash — see
+  [Changing IRKs without reflashing](#changing-irks-without-reflashing).
+
+## Tests
+
+```bash
+tests/run.sh
+```
+
+Compiles the **real** `ble_advert_filter.cpp` against small stubs (`tests/stubs/`) under
+AddressSanitizer and UBSan — nothing is transcribed, so the tests cannot drift from the
+component. Needs only a C++17 compiler; CI runs it on every push.
+
+- IRK resolution checked against the Bluetooth Core spec's own sample data, with an AES written
+  independently of ESPHome's
+- every stage of the chain, the Apple carve-outs, iBeacon rules, service-UUID passthrough in
+  all eight AD forms, runtime IRKs
+- a property test that the pre-gate never changes a verdict (150,000+ comparisons across 400
+  random configs)
+- 200,000 random and truncated payloads, each in an exactly sized heap buffer so a one-byte
+  overread aborts the run
+
+## Migrating from the `bluetooth_proxy` fork
+
+[esphome-bluetooth-proxy-filter](https://github.com/davidcoulson/esphome-bluetooth-proxy-filter)
+is the same filter inside a fork of `bluetooth_proxy`. The two are kept textually identical
+(that repo's `tools/check_parity.py` fails CI on drift), with the same options and the same
+public methods, so moving is mechanical once you are on ESPHome 2026.10:
+
+```yaml
+external_components:
+  # was: .../esphome-bluetooth-proxy-filter, components: [bluetooth_proxy]
+  - source: github://davidcoulson/esphome-ble-advert-filter@<tag>
+    components: [ble_advert_filter]
+
+bluetooth_proxy:
+  id: ble_proxy_core        # stock component again; only its own options stay here
+  active: true
+
+ble_advert_filter:
+  id: ble_proxy             # <- the id your lambdas already use
+  rssi_threshold: -80       # every filter option moves here, unchanged
+  irks: [...]
+```
+
+Giving the filter the id the fork's proxy had means existing lambdas —
+`id(ble_proxy).set_rssi_threshold(x)`, `get_adv_forwarded()`, `set_irks(x)` — keep working
+untouched. `connection_slots`, `active` and `cache_services` stay under `bluetooth_proxy:`.
 
 ## Credits
 
