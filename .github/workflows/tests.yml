@@ -1,0 +1,14 @@
+name: tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  filter-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # The real component compiled against tests/stubs/ under ASan + UBSan.
+      # No ESPHome or ESP-IDF toolchain needed.
+      - run: tests/run.sh

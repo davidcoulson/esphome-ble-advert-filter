@@ -31,7 +31,10 @@ class BLEAdvertFilter : public Component {
   ///
   /// Runtime-tunable: the matching number entity restores on boot and overwrites
   /// whatever the YAML set, so tune there rather than reflashing.
-  void set_rssi_threshold(int8_t rssi) { this->rssi_threshold_ = rssi; }
+  void set_rssi_threshold(int8_t rssi) {
+    this->rssi_threshold_ = rssi;
+    this->recompute_gate_();
+  }
   int8_t get_rssi_threshold() const { return this->rssi_threshold_; }
 
   /// Absolute reception floor, applied to EVERY advertisement including ones
@@ -42,7 +45,10 @@ class BLEAdvertFilter : public Component {
   ///
   /// Runs BEFORE categorisation, which is the whole point: an allowlisted tag
   /// heard at -100 dBm is still dropped. -127 (the default) disables it.
-  void set_rssi_floor(int8_t rssi) { this->rssi_floor_ = rssi; }
+  void set_rssi_floor(int8_t rssi) {
+    this->rssi_floor_ = rssi;
+    this->recompute_gate_();
+  }
   int8_t get_rssi_floor() const { return this->rssi_floor_; }
 
   /// Per-category RSSI limits. Every advertisement is categorised first (MAC
@@ -85,21 +91,46 @@ class BLEAdvertFilter : public Component {
   /// -127, which means the opposite (forward at any strength).
   static constexpr int8_t IBEACON_RSSI_INHERIT = -128;
 
-  void set_allow_ibeacon(bool allow) { this->allow_ibeacon_ = allow; }
-  void set_ibeacon_any_rssi(int8_t rssi) { this->ibeacon_any_rssi_ = rssi; }
-  void add_ibeacon_major(uint16_t major, int8_t rssi) { this->ibeacon_majors_.push_back({major, rssi}); }
+  void set_allow_ibeacon(bool allow) {
+    this->allow_ibeacon_ = allow;
+    this->recompute_gate_();
+  }
+  void set_ibeacon_any_rssi(int8_t rssi) {
+    this->ibeacon_any_rssi_ = rssi;
+    this->recompute_gate_();
+  }
+  void add_ibeacon_major(uint16_t major, int8_t rssi) {
+    this->ibeacon_majors_.push_back({major, rssi});
+    this->recompute_gate_();
+  }
   void add_ibeacon_major_minor(uint16_t major, uint16_t minor, int8_t rssi) {
     this->ibeacon_pairs_.push_back({(static_cast<uint32_t>(major) << 16) | minor, rssi});
+    this->recompute_gate_();
   }
-  /// Cheap pre-gate: the loosest limit any rule could apply. Anything weaker
-  /// than this is dropped before the categoriser runs, so a fleet that lets its
-  /// own beacons through at -127 still does not pay an AES resolve and a
-  /// payload walk for every distant advert in the neighbourhood.
-  void set_min_rssi_gate(int8_t rssi) { this->min_rssi_gate_ = rssi; }
+  /// Cheap pre-gate: the loosest RSSI limit any rule in this config could
+  /// apply. Anything weaker is dropped before the categoriser runs, so a fleet
+  /// that lets its own beacons through at a low RSSI still does not pay an AES
+  /// resolve and a payload walk for every distant advert in the neighbourhood.
+  ///
+  /// Derived, never set: recompute_gate_() runs whenever a limit or a list it
+  /// depends on changes, INCLUDING at runtime. It used to be computed once at
+  /// codegen, so a number entity lowering rssi_threshold below the compiled
+  /// gate silently stopped working - the gate had already dropped the adverts
+  /// the new threshold was meant to admit.
+  int8_t get_min_rssi_gate() const { return this->min_rssi_gate_; }
 
-  void set_rssi_mac_allowlist(int8_t rssi) { this->rssi_mac_allowlist_ = rssi; }
-  void set_rssi_irk(int8_t rssi) { this->rssi_irk_ = rssi; }
-  void set_rssi_service_uuid(int8_t rssi) { this->rssi_service_uuid_ = rssi; }
+  void set_rssi_mac_allowlist(int8_t rssi) {
+    this->rssi_mac_allowlist_ = rssi;
+    this->recompute_gate_();
+  }
+  void set_rssi_irk(int8_t rssi) {
+    this->rssi_irk_ = rssi;
+    this->recompute_gate_();
+  }
+  void set_rssi_service_uuid(int8_t rssi) {
+    this->rssi_service_uuid_ = rssi;
+    this->recompute_gate_();
+  }
 
   void set_allow_espressif(bool allow) { this->allow_espressif_ = allow; }
   void set_drop_non_resolvable(bool drop) { this->drop_non_resolvable_ = drop; }
@@ -115,9 +146,18 @@ class BLEAdvertFilter : public Component {
   /// support) and can therefore follow its address rotation. Every passing
   /// AirTag comes through too, which is why the rule can carry its own RSSI
   /// limit (set_findmy_rssi), resolved exactly like an iBeacon rule's.
-  void set_allow_findmy(bool allow) { this->allow_findmy_ = allow; }
-  void set_findmy_rssi(int8_t rssi) { this->findmy_rssi_ = rssi; }
-  void set_irks_hex(const char *hex) { this->irks_hex_ = hex; }
+  void set_allow_findmy(bool allow) {
+    this->allow_findmy_ = allow;
+    this->recompute_gate_();
+  }
+  void set_findmy_rssi(int8_t rssi) {
+    this->findmy_rssi_ = rssi;
+    this->recompute_gate_();
+  }
+  void set_irks_hex(const char *hex) {
+    this->irks_hex_ = hex;
+    this->recompute_gate_();
+  }
   /// Replace the IRK list at runtime - typically from a Home Assistant entity,
   /// so a new phone does not mean reflashing every proxy.
   ///
@@ -138,7 +178,10 @@ class BLEAdvertFilter : public Component {
   /// dispatched from the main loop, so the list is never swapped mid-lookup.
   int set_irks(const std::string &text);
   /// Deliberately empty the IRK list, which turns IRK gating off entirely.
-  void clear_irks() { this->irks_.clear(); }
+  void clear_irks() {
+    this->irks_.clear();
+    this->recompute_gate_();
+  }
   size_t get_irk_count() const { return this->irks_.size(); }
   /// The live list, read-only - so a YAML lambda can persist the last good
   /// list to flash and restore it before Home Assistant connects.
@@ -146,7 +189,10 @@ class BLEAdvertFilter : public Component {
   void add_blocked_name(const char *needle) { this->name_blocklist_.push_back(needle); }
   void add_blocked_manufacturer(uint16_t company) { this->manufacturer_blocklist_.push_back(company); }
   /// Address that bypasses every filter.
-  void add_allowed_mac(uint64_t addr) { this->mac_allowlist_.push_back(addr); }
+  void add_allowed_mac(uint64_t addr) {
+    this->mac_allowlist_.push_back(addr);
+    this->recompute_gate_();
+  }
   /// Address this proxy ignores entirely, everything else proceeding normally.
   ///
   /// For multi-proxy bonding conflicts: when several proxies are in range of a
@@ -164,12 +210,23 @@ class BLEAdvertFilter : public Component {
   /// lands: filtering in the controller also saves the CPU and power spent
   /// parsing packets, which a host-side filter like this one cannot.
   void set_allowlist_exclusive(bool exclusive) { this->allowlist_exclusive_ = exclusive; }
-  void add_allowed_service_uuid(uint16_t uuid) { this->service_uuid_allowlist_.push_back(uuid); }
-  void add_allowed_service_uuid128(const char *hex) { this->service_uuid128_hex_.push_back(hex); }
+  void add_allowed_service_uuid(uint16_t uuid) {
+    this->service_uuid_allowlist_.push_back(uuid);
+    this->recompute_gate_();
+  }
+  void add_allowed_service_uuid128(const char *hex) {
+    this->service_uuid128_hex_.push_back(hex);
+    this->recompute_gate_();
+  }
 
   uint32_t get_adv_forwarded() const { return this->adv_forwarded_; }
   uint32_t get_adv_dropped() const { return this->adv_dropped_; }
   uint32_t get_adv_dropped_rpa() const { return this->adv_dropped_rpa_; }
+  /// Advertisements forwarded because their RPA resolved to one of our IRKs.
+  /// The counterpart of get_adv_dropped_rpa(), and the only way to tell a wrong
+  /// key from an absent phone: a key that never matches leaves this flat while
+  /// its owner's adverts are counted as somebody else's and dropped.
+  uint32_t get_adv_forwarded_irk() const { return this->adv_forwarded_irk_; }
   uint32_t get_adv_allowed_service_uuid() const { return this->adv_allowed_service_uuid_; }
   /// Subset of get_adv_dropped(): advertisements discarded because rssi_floor
   /// was the binding limit for their category. It can include otherwise
@@ -197,12 +254,14 @@ class BLEAdvertFilter : public Component {
   bool findmy_match_(const uint8_t *data, uint16_t len) const;
   bool payload_has_allowed_service_uuid_(const uint8_t *data, uint16_t len) const;
   bool uuid128_matches_(const uint8_t *le_bytes) const;
+  void recompute_gate_();
 
   bluetooth_proxy::BluetoothProxy *parent_{nullptr};
 
   uint32_t adv_forwarded_{0};
   uint32_t adv_dropped_{0};
   uint32_t adv_dropped_rpa_{0};
+  uint32_t adv_forwarded_irk_{0};
   uint32_t adv_allowed_service_uuid_{0};
   uint32_t adv_dropped_floor_{0};
   uint32_t adv_dropped_gate_{0};
