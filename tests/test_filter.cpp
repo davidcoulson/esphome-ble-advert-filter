@@ -84,7 +84,8 @@ struct Fixture {
   // The exact-size heap copy is what lets ASan see an overread.
   bool fwd(uint64_t addr, uint8_t type, int8_t rssi, const Bytes &data) {
     std::unique_ptr<uint8_t[]> buf(new uint8_t[data.size()]);
-    std::memcpy(buf.get(), data.data(), data.size());
+    if (!data.empty())  // an empty vector's data() may be null, which memcpy must not be given
+      std::memcpy(buf.get(), data.data(), data.size());
     RawAdvertisement a{addr, buf.get(), static_cast<uint16_t>(data.size()), rssi, type};
     return f.should_forward(a);
   }
