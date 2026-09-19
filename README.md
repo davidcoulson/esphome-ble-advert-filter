@@ -63,7 +63,7 @@ ble_advert_filter:
 | `name_blocklist` | `[]` | Case-insensitive substring match on the advertised local name |
 | `manufacturer_blocklist` | `[]` | Bluetooth SIG company identifiers (AD type `0xFF`) |
 | `allow_homekit` | `true` | Exempt HomeKit (HAP) from `manufacturer_blocklist` |
-| `allow_ibeacon` | `false` | Exempt iBeacons from `manufacturer_blocklist` — `true` for all, or a list of `major`/`minor`/`rssi` filters |
+| `allow_ibeacon` | `false` | Exempt iBeacons from `manufacturer_blocklist` — `true` for all, or a list of `uuid`/`major`/`minor`/`rssi` rules |
 | `allow_findmy` | `false` | Exempt Apple FindMy accessories (AirTags, AirPods, licensed tags) from `manufacturer_blocklist` — `true`, or `{rssi: N}` to give them their own limit |
 
 The order the filters run in, and why, is under [Filter order](#filter-order).
@@ -208,24 +208,33 @@ ble_advert_filter:
   allow_ibeacon: true          # every iBeacon exempt
 ```
 
-Scope it to your own beacons instead of opening the door to every iBeacon in radio range:
+Scope it to your own beacons instead of opening the door to every iBeacon in radio range.
+**Scope by `uuid`.** `major` and `minor` are small integers every vendor starts counting from
+1, so a rule that names only `major: 1` admits anybody's beacon that was left on its
+defaults — and admits it at this rule's `rssi`, which usually overrides the floor. The UUID is
+the only field that says whose beacon it is:
 
 ```yaml
   allow_ibeacon:
-    - major: 1
-      minor: 7                 # one probe
+    - uuid: fde3b150-2f64-43ba-aee9-867f75ee4a6f
+      major: 1                 # our probes, and nobody else's major 1
+    - uuid: 12345678-1234-1234-1234-123456789abc   # every major/minor of this uuid
     - major: 10
-      minor: [3, 4, 5]         # several
-    - major: 11                # whole major, any minor
+      minor: [3, 4, 5]         # no uuid: ANY vendor's 10/3, 10/4, 10/5
 ```
+
+A rule needs a `uuid`, a `major`, or both; `minor` only means something inside a `major`.
+When several rules match, the most specific wins — `minor` over `major` over uuid-only, and
+a uuid-scoped rule over an unscoped one — whatever order they are written in.
 
 Each filter can carry its own `rssi`, which **overrides both `rssi_threshold` and
 `rssi_floor`** for adverts it matches:
 
 ```yaml
   allow_ibeacon:
-    - major: 1
-      rssi: -127               # our probes: forward at any strength
+    - uuid: fde3b150-2f64-43ba-aee9-867f75ee4a6f
+      major: 1
+      rssi: -95                # our probes: well below the floor
     - major: 10
       rssi: -85
 ```
@@ -242,7 +251,7 @@ genuinely want everything.
 
 The filters **narrow** the exemption; they never add a drop rule. An iBeacon matching none
 of them falls through to the normal manufacturer test, exactly as if the exemption were
-off. A truncated iBeacon carrying no major/minor cannot be matched, so it is not exempted
+off. A truncated iBeacon carrying no uuid/major/minor cannot be matched, so it is not exempted
 when filters are in use (bare `true` still exempts it).
 
 ### The pre-gate
