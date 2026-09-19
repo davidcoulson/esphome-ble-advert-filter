@@ -176,6 +176,8 @@ class BLEAdvertFilter : public Component {
   ///
   /// Safe to call at any time: advertisements and API state updates are both
   /// dispatched from the main loop, so the list is never swapped mid-lookup.
+  /// At most MAX_RUNTIME_IRKS keys are taken; the rest are ignored with a warning.
+  static constexpr size_t MAX_RUNTIME_IRKS = 32;
   int set_irks(const std::string &text);
   /// Deliberately empty the IRK list, which turns IRK gating off entirely.
   void clear_irks() {
@@ -243,6 +245,9 @@ class BLEAdvertFilter : public Component {
   bool should_forward(const ble_device_base::RawAdvertisement &adv);
 
  protected:
+  // RawAdvertisement::addr_type, as the hubs report it: 0 public, 1 random.
+  // ESP-IDF adds 2/3 for identity addresses of RPAs its controller resolved.
+  static constexpr uint8_t ADDR_TYPE_RANDOM = 1;
   static bool address_is_rpa_(uint64_t addr, uint8_t addr_type);
   static bool address_is_non_resolvable_(uint64_t addr, uint8_t addr_type);
   static bool is_espressif_oui_(uint64_t addr);

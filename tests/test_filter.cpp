@@ -139,6 +139,15 @@ int main() {
     check(x.fwd(0x4C1122334455ULL, PUBLIC, -60, FLAGS), "a PUBLIC address in the RPA bit range (Espressif 4C:..) is never treated as an RPA");
   }
 
+  {
+    // ESP-IDF reports a device it is bonded to by its IDENTITY address: type 2
+    // (public identity) or 3 (static random identity). Neither is private.
+    Fixture x; x.f.set_irks_hex(SPEC_IRK); x.f.set_drop_non_resolvable(true); x.f.setup();
+    check(x.fwd(0x4C1122334455ULL, 2, -60, FLAGS), "a bonded device's public identity address (type 2) with a 4C: OUI is not an unresolved RPA");
+    check(x.fwd(0x0C1122334455ULL, 2, -60, FLAGS), "nor, with a 0C: OUI, a non-resolvable address");
+    check(x.fwd(STATIC_ADDR, 3, -60, FLAGS), "a static random identity address (type 3) passes");
+  }
+
   std::printf("\n== an unconfigured filter is a no-op ==\n");
   {
     Fixture x; x.f.setup();
@@ -254,6 +263,15 @@ int main() {
     check(x.f.set_irks(std::string(SPEC_IRK) + "0") == -1, "33 hex digits is not a key");
     check(x.f.set_irks(std::string(SPEC_IRK) + SPEC_IRK) == -1, "two keys run together are rejected, not split");
     check(x.f.set_irks(std::string(SPEC_IRK) + "," + SPEC_IRK) == 1, "duplicates collapse");
+    {
+      std::string many;
+      for (int k = 0; k < 40; k++) {
+        char key[40];
+        std::snprintf(key, sizeof(key), "%032x,", k + 1);
+        many += key;
+      }
+      check(x.f.set_irks(many) == 32 && x.f.get_irk_count() == BLEAdvertFilter::MAX_RUNTIME_IRKS, "a runtime list is capped at MAX_RUNTIME_IRKS");
+    }
     x.f.clear_irks();
     check(x.f.get_irk_count() == 0 && x.fwd(STRANGER_RPA, RANDOM, -60, FLAGS), "clear_irks turns RPA gating off");
   }
