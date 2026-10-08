@@ -1,5 +1,8 @@
 # esphome-ble-advert-filter
 
+[![tests](https://github.com/davidcoulson/esphome-ble-advert-filter/actions/workflows/tests.yml/badge.svg)](https://github.com/davidcoulson/esphome-ble-advert-filter/actions/workflows/tests.yml)
+[![compile](https://github.com/davidcoulson/esphome-ble-advert-filter/actions/workflows/compile.yml/badge.svg)](https://github.com/davidcoulson/esphome-ble-advert-filter/actions/workflows/compile.yml)
+
 On-device BLE advertisement filtering for ESPHome's `bluetooth_proxy`.
 
 A proxy forwards every advertisement it hears. In a house with many BLE devices — or many
@@ -28,6 +31,7 @@ external_components:
   - source:
       type: git
       url: https://github.com/davidcoulson/esphome-ble-advert-filter
+      ref: v2.0.0      # pin a release; main can change under you between builds
     components: [ble_advert_filter]
 
 bluetooth_proxy:
@@ -112,23 +116,83 @@ bridge, and this component when a general-purpose proxy needs to shed noise.
 
 ## Diagnostics
 
+The `ble_advert_filter` sensor platform reports the filter's counters as rates, so the effect
+is measurable rather than guessed. Every key is optional; add the ones you want:
+
+```yaml
+sensor:
+  - platform: ble_advert_filter
+    update_interval: 60s       # default
+    forwarded:
+      name: "BLE Adverts Forwarded"
+    dropped:
+      name: "BLE Adverts Dropped"
+    dropped_rpa:
+      name: "BLE RPAs Dropped"
+    forwarded_irk:
+      name: "BLE IRK Matches"
+    allowed_service_uuid:
+      name: "BLE Service UUID Allowed"
+    dropped_floor:
+      name: "BLE Dropped By Floor"
+    dropped_gate:
+      name: "BLE Dropped By Gate"
+    drop_rate:
+      name: "BLE Advert Drop Rate"
+    irk_count:
+      name: "BLE IRKs Loaded"
+```
+
+| Key | Unit | Meaning |
+|---|---|---|
+| `forwarded`, `dropped` | adv/min | Everything this proxy heard, split by verdict |
+| `dropped_rpa` | adv/min | Subset of `dropped`: rotating addresses that resolved to none of your IRKs — other people's phones and watches |
+| `forwarded_irk` | adv/min | Forwarded because the address resolved to one of your IRKs |
+| `allowed_service_uuid` | adv/min | Forwarded only because of `service_uuid_allowlist` |
+| `dropped_floor` | adv/min | Subset of `dropped`: cut by `rssi_floor` |
+| `dropped_gate` | adv/min | Subset of `dropped`: below the [pre-gate](#the-pre-gate) |
+| `drop_rate` | % | Share of what was heard that was dropped. Unknown, not 0%, when nothing was heard |
+| `irk_count` | | Keys currently loaded |
+
+Rates are scaled by the real time between updates, so they stay right whatever
+`update_interval` is.
+
+`allowed_service_uuid` sits at zero unless the service-UUID bypass actually fired, which makes a
+failed commissioning attempt diagnosable instead of guesswork.
+
+`forwarded_irk` is the only way to tell a wrong key from an absent phone: a key that never
+matches leaves it flat while its owner's adverts are counted in `dropped_rpa` as somebody
+else's.
+
+`dropped_floor` is the one counter that can include otherwise protected devices, so a rising
+value means `rssi_floor` is cutting a tracked tag — which is exactly when it needs revisiting.
+
+The same counters are free-running totals on the component —
 `get_adv_forwarded()`, `get_adv_dropped()`, `get_adv_dropped_rpa()`, `get_adv_forwarded_irk()`,
-`get_adv_allowed_service_uuid()`, `get_adv_dropped_floor()` and `get_adv_dropped_gate()`
-expose per-proxy counters, so the effect is measurable rather
-than guessed. Surface them as template sensors reporting the delta per update interval to see
-a rate.
+`get_adv_allowed_service_uuid()`, `get_adv_dropped_floor()`, `get_adv_dropped_gate()`,
+`get_irk_count()` — for lambdas that want something the platform does not provide.
 
-`get_adv_allowed_service_uuid()` sits at zero unless the service-UUID bypass actually fired,
-which makes a failed commissioning attempt diagnosable instead of guesswork.
+## Tuning the threshold from Home Assistant
 
-`get_adv_forwarded_irk()` counts advertisements forwarded because their address resolved to one
-of your IRKs. It is the only way to tell a wrong key from an absent phone: a key that never
-matches leaves it flat while its owner's adverts are counted by `get_adv_dropped_rpa()` as
-somebody else's. `get_irk_count()` is how many keys are loaded.
+The `ble_advert_filter` number platform puts `rssi_threshold` on a dial, so each proxy can be
+tuned without reflashing:
 
-`get_adv_dropped_floor()` is the one counter that can include otherwise protected devices, so a
-rising value means `rssi_floor` is cutting a tracked tag — which is exactly when it needs
-revisiting.
+```yaml
+number:
+  - platform: ble_advert_filter
+    rssi_threshold:
+      name: "BLE RSSI Threshold"
+      # min_value: defaults to the filter's rssi_floor (or -100 without one)
+      # max_value: -30
+      # restore_value: true
+```
+
+The YAML `rssi_threshold` is the starting value. With `restore_value` (the default) the last
+value set from Home Assistant survives a reboot and takes over from then on, applied to the
+filter at boot as well as displayed. `min_value` cannot go below `rssi_floor`: the floor has
+already dropped everything weaker, so lower settings would look like they loosened the filter
+and change nothing. Give the filter an `rssi_threshold` when using the dial; without one the
+threshold is off (`-127`), which is outside the dial's range until you move it.
 
 ## Changing IRKs without reflashing
 
@@ -143,8 +207,11 @@ text_sensor:
     attribute: irks            # an attribute: HA caps states at 255 characters
     internal: true
     on_value:
-      - lambda: 'id(ble_proxy).set_irks(x);'
+      - ble_advert_filter.set_irks: !lambda "return x;"
 ```
+
+`ble_advert_filter.clear_irks` empties the list on purpose. Both are also methods on the
+component — `id(my_filter).set_irks(x)`, `clear_irks()` — for lambdas.
 
 The parser takes every run of **exactly 32 hex characters** and ignores the
 rest, so the Home Assistant side can keep a name next to each key -
@@ -156,8 +223,8 @@ no separator between them (64 digits) are rejected rather than split.
 **Input with no valid key leaves the current list untouched** and returns
 `-1`. An entity that is briefly `unavailable` during a Home Assistant restart
 must not be able to wipe the list: with `manufacturer_blocklist: [0x004C]` a
-wiped list silently drops your own phones. `clear_irks()` empties it on
-purpose.
+wiped list silently drops your own phones. `ble_advert_filter.clear_irks`
+(or `clear_irks()`) empties it on purpose.
 
 The compile-time list still loads in `setup()`; `set_irks()` replaces it, it
 does not merge. `get_irks()` exposes the live list read-only so a lambda can
@@ -312,6 +379,15 @@ and `service_uuid` inherit `rssi_threshold`. Configuration validation rejects a 
 `rssi_threshold` (when one is set — a floor on its own is fine), and a category limit below the
 floor (which could never fire).
 
+## Performance
+
+Checking a rotating address against your IRKs costs one AES key schedule and block per key.
+A phone advertises several times a second from the same address for about 15 minutes, so the
+filter remembers the verdict for the last 64 such addresses (512 bytes, allocated only once
+IRKs are in use) and resolves each one once per rotation rather than once per advertisement.
+Changing the key list empties it, so a newly added phone resolves immediately. Everything
+else in the chain is a few comparisons; the payload walks run only when their options are set.
+
 ## Caveats
 
 - **Passive scanning loses local names.** If your tracker runs `active: false`, scan responses
@@ -333,8 +409,14 @@ Compiles the **real** `ble_advert_filter.cpp` against small stubs (`tests/stubs/
 AddressSanitizer and UBSan — nothing is transcribed, so the tests cannot drift from the
 component. Needs only a C++17 compiler; CI runs it on every push.
 
+The stubs cannot notice ESPHome changing underneath the component, so CI also builds
+`tests/compile/` (every option, both platforms, both actions, ESP32-C3 and ESP32-S3) with real
+ESPHome: the newest release or beta, the newest stable release, and weekly against `dev`.
+
 - IRK resolution checked against the Bluetooth Core spec's own sample data, with an AES written
   independently of ESPHome's
+- the RPA verdict cache: one resolution per address, invalidated when keys change, oldest
+  evicted first
 - every stage of the chain, the Apple carve-outs, iBeacon rules, service-UUID passthrough in
   all eight AD forms, runtime IRKs
 - a property test that the pre-gate never changes a verdict (150,000+ comparisons across 400
@@ -345,14 +427,15 @@ component. Needs only a C++17 compiler; CI runs it on every push.
 ## Migrating from the `bluetooth_proxy` fork
 
 [esphome-bluetooth-proxy-filter](https://github.com/davidcoulson/esphome-bluetooth-proxy-filter)
-is the same filter inside a fork of `bluetooth_proxy`. The two are kept textually identical
-(that repo's `tools/check_parity.py` fails CI on drift), with the same options and the same
-public methods, so moving is mechanical once you are on ESPHome 2026.10:
+is the same filter inside a fork of `bluetooth_proxy`, for ESPHome 2026.9 and earlier. It is
+frozen at this repo's `v1.7.0` (its `tools/check_parity.py` still checks that); `v2.0.0` and
+later add the RPA cache, the sensor and number platforms and the actions here only. The options
+and public methods are the same, so moving is mechanical once you are on ESPHome 2026.10:
 
 ```yaml
 external_components:
   # was: .../esphome-bluetooth-proxy-filter, components: [bluetooth_proxy]
-  - source: github://davidcoulson/esphome-ble-advert-filter@<tag>
+  - source: github://davidcoulson/esphome-ble-advert-filter@v2.0.0
     components: [ble_advert_filter]
 
 bluetooth_proxy:
@@ -368,6 +451,13 @@ ble_advert_filter:
 Giving the filter the id the fork's proxy had means existing lambdas —
 `id(ble_proxy).set_rssi_threshold(x)`, `get_adv_forwarded()`, `set_irks(x)` — keep working
 untouched. `connection_slots`, `active` and `cache_services` stay under `bluetooth_proxy:`.
+Template sensors and numbers built on those lambdas can then be swapped for the
+[sensor](#diagnostics) and [number](#tuning-the-threshold-from-home-assistant) platforms at
+your own pace.
+
+## License
+
+[MIT](LICENSE).
 
 ## Credits
 
