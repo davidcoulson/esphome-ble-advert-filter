@@ -43,7 +43,7 @@ Each advert the proxy hears goes through these questions. Any you haven't config
 skipped.
 
 <p align="center">
-  <img src="docs/filter-flow.svg" alt="Four questions in turn: a device you told the proxy to ignore, too far away, someone else's phone, background noise you blocked. A yes drops the advert on the proxy; four noes send it to Home Assistant. Your own devices skip the last two questions." width="720">
+  <img src="docs/filter-flow.svg" alt="Each advert is asked in turn: is it a device you told this proxy to ignore; is it too far away; is it one of your devices (if so it goes straight to Home Assistant); is it someone else's phone; is it background noise you blocked. A yes to any other question drops it on the proxy. Anything left is sent to Home Assistant." width="720">
 </p>
 
 ## Requirements
