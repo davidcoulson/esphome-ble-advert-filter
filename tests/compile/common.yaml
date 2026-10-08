@@ -1,0 +1,91 @@
+# Shared body of the compile tests: every filter option, both platforms and both
+# actions. Not a device config - the values only need to be valid.
+logger:
+
+wifi:
+  ssid: compile-test
+  password: compile-test
+
+api:
+
+esp32_ble_tracker:
+
+bluetooth_proxy:
+  active: true
+
+external_components:
+  - source:
+      type: local
+      path: ../../components
+    components: [ble_advert_filter]
+
+ble_advert_filter:
+  id: adv_filter
+  rssi_threshold: -75
+  rssi_floor: -90
+  rssi_mac_allowlist: -88
+  rssi_irk: -85
+  rssi_service_uuid: -80
+  drop_non_resolvable: true
+  allow_espressif: true
+  allow_homekit: true
+  allow_findmy:
+    rssi: -70
+  allow_ibeacon:
+    - uuid: "fda50693-a4e2-4fb1-afcf-c6eb07647825"
+      major: 1
+      minor: [7, 8]
+      rssi: -90
+    - major: 10
+  irks:
+    - "ffeeddccbbaa99887766554433221100"
+  mac_allowlist:
+    - "AA:BB:CC:DD:EE:FF"
+  mac_blocklist:
+    - "11:22:33:44:55:66"
+  name_blocklist: ["LE_WH-1000", "Bose"]
+  manufacturer_blocklist: [0x004C, 0x0006]
+  service_uuid_allowlist:
+    - 0xFFF6
+    - "00467768-6228-2272-4663-277478268000"
+
+number:
+  - platform: ble_advert_filter
+    rssi_threshold:
+      name: "BLE RSSI Threshold"
+
+sensor:
+  - platform: ble_advert_filter
+    forwarded:
+      name: "BLE Adverts Forwarded"
+    dropped:
+      name: "BLE Adverts Dropped"
+    dropped_rpa:
+      name: "BLE RPAs Dropped"
+    forwarded_irk:
+      name: "BLE IRK Matches"
+    allowed_service_uuid:
+      name: "BLE Service UUID Allowed"
+    dropped_floor:
+      name: "BLE Dropped By Floor"
+    dropped_gate:
+      name: "BLE Dropped By Gate"
+    drop_rate:
+      name: "BLE Advert Drop Rate"
+    irk_count:
+      name: "BLE IRKs Loaded"
+
+text_sensor:
+  - platform: template
+    id: irk_source
+    internal: true
+    lambda: 'return {"phone: 00112233445566778899aabbccddeeff"};'
+    on_value:
+      - ble_advert_filter.set_irks: !lambda "return x;"
+
+button:
+  - platform: template
+    name: "Clear IRKs"
+    on_press:
+      - ble_advert_filter.clear_irks:
+      - ble_advert_filter.set_irks: "00112233445566778899aabbccddeeff"

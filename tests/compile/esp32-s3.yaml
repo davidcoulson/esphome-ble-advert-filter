@@ -1,0 +1,10 @@
+esphome:
+  name: baf-compile-s3
+
+esp32:
+  variant: esp32s3
+  framework:
+    type: esp-idf
+
+packages:
+  common: !include common.yaml
