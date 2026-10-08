@@ -166,6 +166,7 @@ class BLEAdvertFilter : public Component {
   }
   void set_irks_hex(const char *hex) {
     this->irks_hex_ = hex;
+    this->clear_rpa_cache_();
     this->recompute_gate_();
   }
   /// Replace the IRK list at runtime - typically from a Home Assistant entity,
@@ -192,9 +193,19 @@ class BLEAdvertFilter : public Component {
   /// Deliberately empty the IRK list, which turns IRK gating off entirely.
   void clear_irks() {
     this->irks_.clear();
+    this->clear_rpa_cache_();
     this->recompute_gate_();
   }
   size_t get_irk_count() const { return this->irks_.size(); }
+  /// Verdicts remembered for recently seen RPAs, so a phone advertising several
+  /// times a second costs one IRK resolution per address rotation (~15 min)
+  /// instead of one per advertisement. Each slot is 8 bytes; allocated on the
+  /// first RPA seen while IRKs are loaded, and emptied whenever the key list
+  /// changes.
+  static constexpr size_t RPA_CACHE_SIZE = 64;
+  /// IRK resolutions actually computed (cache misses). Each costs one AES
+  /// key schedule plus one block per loaded key.
+  uint32_t get_irk_resolutions() const { return this->irk_resolutions_; }
   /// The live list, read-only - so a YAML lambda can persist the last good
   /// list to flash and restore it before Home Assistant connects.
   const std::vector<std::array<uint8_t, 16>> &get_irks() const { return this->irks_; }
@@ -262,6 +273,9 @@ class BLEAdvertFilter : public Component {
   static bool address_is_non_resolvable_(uint64_t addr, uint8_t addr_type);
   static bool is_espressif_oui_(uint64_t addr);
   bool irk_matches_(uint64_t addr) const;
+  /// irk_matches_() behind the RPA verdict cache.
+  bool irk_matches_cached_(uint64_t addr);
+  void clear_rpa_cache_();
   bool payload_blocked_(const uint8_t *data, uint16_t len) const;
   /// True when the advert is an iBeacon accepted by a configured filter;
   /// writes that filter's RSSI limit to limit_out.
@@ -280,9 +294,16 @@ class BLEAdvertFilter : public Component {
   uint32_t adv_allowed_service_uuid_{0};
   uint32_t adv_dropped_floor_{0};
   uint32_t adv_dropped_gate_{0};
+  uint32_t irk_resolutions_{0};
 
   const char *irks_hex_{nullptr};
   std::vector<std::array<uint8_t, 16>> irks_;
+  // Each slot is a 48-bit address with the verdict in bit 63; 0 is empty (an
+  // RPA always has bit 46 set, so a real entry is never 0). Filled round-robin:
+  // the oldest verdict goes first, which for rotating addresses is the one
+  // least likely to be heard again.
+  std::vector<uint64_t> rpa_cache_;
+  uint8_t rpa_cache_next_{0};
   std::vector<const char *> name_blocklist_;
   std::vector<uint64_t> mac_allowlist_;
   std::vector<uint64_t> mac_blocklist_;
