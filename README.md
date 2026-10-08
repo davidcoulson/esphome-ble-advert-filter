@@ -10,11 +10,13 @@ the device, before it crosses the network.
 Measured on one ESP32-S3 Ethernet proxy in a 60+ proxy deployment: **6,197 adv/min dropped
 against 3,991 forwarded — a 60.7% reduction**, of which 2,660 were unresolvable RPAs.
 
-## Requires the upstream filter hook
+## Requires ESPHome 2026.10.0 or later
 
 This component installs itself into `bluetooth_proxy`'s `AdvertisementFilter` slot, added in
-[esphome/esphome#19220](https://github.com/esphome/esphome/pull/19220). **It will not compile
-against an ESPHome release that predates that hook.**
+[esphome/esphome#19220](https://github.com/esphome/esphome/pull/19220) and first released in
+ESPHome **2026.10.0** (2026.10.0b1 onwards). **It will not compile against 2026.9.x or
+earlier**, which predate that hook. Compile-tested on 2026.10.0b1 (ESP32-C3 and ESP32-S3,
+every option).
 
 This replaces an earlier approach that vendored a whole fork of `bluetooth_proxy`, which had
 to be re-synced on every ESPHome release. Against the hook there is nothing to re-sync.
