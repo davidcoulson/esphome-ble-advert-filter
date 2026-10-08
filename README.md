@@ -43,7 +43,7 @@ Each advert the proxy hears goes through these questions. Any you haven't config
 skipped.
 
 <p align="center">
-  <img src="docs/filter-flow.svg" alt="Each advert is asked in turn: is it a device you told this proxy to ignore; is it too far away; is it one of your devices (if so it goes straight to Home Assistant); is it someone else's phone; is it an address nobody can track; is it from a manufacturer you blocked (HomeKit accessories skip this one); does its name match one you blocked. A yes to any of these except the one-of-yours question drops it on the proxy. Anything left is sent to Home Assistant." width="720">
+  <img src="docs/filter-flow.svg" alt="Each advert is asked in turn: is it a device you told this proxy to ignore; is it too far away; is it one of your devices (if so it goes straight to Home Assistant); is it someone else's phone; is it an address nobody can track; is it a HomeKit accessory (if so it skips the next question); is it from a manufacturer you blocked; does its name match one you blocked. A yes to any question other than the two exceptions drops it on the proxy. Anything left is sent to Home Assistant." width="720">
 </p>
 
 ## Requirements

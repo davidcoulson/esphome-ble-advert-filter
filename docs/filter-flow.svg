@@ -1,6 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 850 1022" width="850" height="1022" role="img" aria-labelledby="title desc">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 850 1102" width="850" height="1102" role="img" aria-labelledby="title desc">
 <title id="title">What ble_advert_filter does with each Bluetooth advertisement</title>
-<desc id="desc">Each advert is asked, in turn: is it a device you told this proxy to ignore; is it too far away; is it one of your devices (if so it goes straight to Home Assistant); is it someone else's phone; is it an address nobody can track; is it from a manufacturer you blocked (HomeKit accessories skip this one); does its name match one you blocked. A yes to any of these except the one-of-yours question drops it on the proxy. Anything left is sent to Home Assistant.</desc>
+<desc id="desc">Each advert is asked, in turn: is it a device you told this proxy to ignore; is it too far away; is it one of your devices (if so it goes straight to Home Assistant); is it someone else's phone; is it an address nobody can track; is it a HomeKit accessory (if so it skips the next question); is it from a manufacturer you blocked; does its name match one you blocked. A yes to any question other than the two exceptions drops it on the proxy. Anything left is sent to Home Assistant.</desc>
 <style>
   .bg { fill: #ffffff; }
   .box { fill: #f6f8fa; stroke: #d0d7de; }
@@ -12,8 +12,6 @@
   .head { fill: #8c959f; }
   .yline { stroke: #9a6700; fill: none; }
   .yhead { fill: #9a6700; }
-  .hline { stroke: #8250df; fill: none; }
-  .hhead { fill: #8250df; }
   .t { fill: #1f2328; font: 15px system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; }
   .b { font-weight: 600; }
   .m { fill: #59636e; font-size: 13px; }
@@ -21,7 +19,6 @@
   .dt { fill: #82071e; }
   .ft { fill: #116329; }
   .yt { fill: #6d4a00; }
-  .ht { fill: #6639ba; }
   .yes { fill: #cf222e; font-size: 13px; }
   .no { fill: #59636e; font-size: 13px; }
   @media (prefers-color-scheme: dark) {
@@ -35,20 +32,17 @@
     .head { fill: #6e7681; }
     .yline { stroke: #d29922; }
     .yhead { fill: #d29922; }
-    .hline { stroke: #ab7df8; }
-    .hhead { fill: #ab7df8; }
     .t { fill: #e6edf3; }
     .m { fill: #9198a1; }
     .dt { fill: #ffa198; }
     .ft { fill: #7ee787; }
     .yt { fill: #e3b341; }
-    .ht { fill: #d2a8ff; }
     .yes { fill: #ff7b72; }
     .no { fill: #9198a1; }
   }
 </style>
-<defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="head"/></marker><marker id="y" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="yhead"/></marker><marker id="h" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="hhead"/></marker></defs>
-<rect width="850" height="1022" class="bg"/>
+<defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="head"/></marker><marker id="y" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="yhead"/></marker></defs>
+<rect width="850" height="1102" class="bg"/>
 <rect x="166" y="16" width="300" height="44" rx="22" class="start"/>
 <text x="316" y="44" class="t b" text-anchor="middle">Your proxy hears an advertisement</text>
 <line x1="316" y1="60" x2="316" y2="94" class="line" stroke-width="1.6" marker-end="url(#a)"/>
@@ -107,32 +101,38 @@
 <text x="706.0" y="660.0" class="t m dt" text-anchor="middle">e.g. gadgets hiding who they are</text>
 <line x1="316" y1="678" x2="316" y2="712" class="line" stroke-width="1.6" marker-end="url(#a)"/>
 <text x="324" y="700.0" class="t no" text-anchor="start">no</text>
-<rect x="96" y="712" width="440" height="86" rx="10" class="box"/>
-<text x="114" y="739" class="t b" text-anchor="start">Is it from a manufacturer you blocked?</text>
-<text x="114" y="761" class="t m" text-anchor="start"><tspan class="code">manufacturer_blocklist</tspan></text>
-<text x="114" y="781" class="t m ht" text-anchor="start">HomeKit accessories skip this question (<tspan class="code">allow_homekit</tspan>)</text>
-<line x1="536" y1="755.0" x2="588" y2="755.0" class="line" stroke-width="1.6" marker-end="url(#a)"/>
-<text x="562.0" y="747.0" class="t yes" text-anchor="middle">yes</text>
-<rect x="588" y="729.0" width="236" height="52" rx="26" class="drop"/>
-<text x="706.0" y="751.0" class="t b dt" text-anchor="middle">Dropped on the proxy</text>
-<text x="706.0" y="770.0" class="t m dt" text-anchor="middle">e.g. Apple background chatter</text>
-<line x1="316" y1="798" x2="316" y2="832" class="line" stroke-width="1.6" marker-end="url(#a)"/>
-<text x="324" y="820.0" class="t no" text-anchor="start">no</text>
-<rect x="96" y="832" width="440" height="66" rx="10" class="box"/>
-<text x="114" y="859" class="t b" text-anchor="start">Does its name match one you blocked?</text>
-<text x="114" y="881" class="t m" text-anchor="start"><tspan class="code">name_blocklist</tspan></text>
-<line x1="536" y1="865.0" x2="588" y2="865.0" class="line" stroke-width="1.6" marker-end="url(#a)"/>
-<text x="562.0" y="857.0" class="t yes" text-anchor="middle">yes</text>
-<rect x="588" y="839.0" width="236" height="52" rx="26" class="drop"/>
-<text x="706.0" y="861.0" class="t b dt" text-anchor="middle">Dropped on the proxy</text>
-<text x="706.0" y="880.0" class="t m dt" text-anchor="middle">e.g. headphones you don’t track</text>
-<path d="M96,776 H66 V854 H94" class="hline" stroke-width="1.8" marker-end="url(#h)"/>
-<line x1="316" y1="898" x2="316" y2="932" class="line" stroke-width="1.6" marker-end="url(#a)"/>
-<text x="324" y="920.0" class="t no" text-anchor="start">no</text>
-<rect x="176.0" y="932" width="280" height="46" rx="23" class="fwd"/>
-<text x="316" y="961" class="t b ft" text-anchor="middle">Sent to Home Assistant</text>
-<path d="M96,396.0 H36 V955 H174.0" class="yline" stroke-width="1.8" marker-end="url(#y)"/>
+<rect x="96" y="712" width="440" height="66" rx="10" class="yours"/>
+<text x="114" y="739" class="t b yt" text-anchor="start">Is it a HomeKit accessory?</text>
+<text x="114" y="761" class="t m" text-anchor="start"><tspan class="code">allow_homekit</tspan> (on by default)</text>
+<line x1="316" y1="778" x2="316" y2="812" class="line" stroke-width="1.6" marker-end="url(#a)"/>
+<text x="324" y="800.0" class="t no" text-anchor="start">no</text>
+<rect x="96" y="812" width="440" height="66" rx="10" class="box"/>
+<text x="114" y="839" class="t b" text-anchor="start">Is it from a manufacturer you blocked?</text>
+<text x="114" y="861" class="t m" text-anchor="start"><tspan class="code">manufacturer_blocklist</tspan></text>
+<line x1="536" y1="845.0" x2="588" y2="845.0" class="line" stroke-width="1.6" marker-end="url(#a)"/>
+<text x="562.0" y="837.0" class="t yes" text-anchor="middle">yes</text>
+<rect x="588" y="819.0" width="236" height="52" rx="26" class="drop"/>
+<text x="706.0" y="841.0" class="t b dt" text-anchor="middle">Dropped on the proxy</text>
+<text x="706.0" y="860.0" class="t m dt" text-anchor="middle">e.g. Apple background chatter</text>
+<line x1="316" y1="878" x2="316" y2="912" class="line" stroke-width="1.6" marker-end="url(#a)"/>
+<text x="324" y="900.0" class="t no" text-anchor="start">no</text>
+<rect x="96" y="912" width="440" height="66" rx="10" class="box"/>
+<text x="114" y="939" class="t b" text-anchor="start">Does its name match one you blocked?</text>
+<text x="114" y="961" class="t m" text-anchor="start"><tspan class="code">name_blocklist</tspan></text>
+<line x1="536" y1="945.0" x2="588" y2="945.0" class="line" stroke-width="1.6" marker-end="url(#a)"/>
+<text x="562.0" y="937.0" class="t yes" text-anchor="middle">yes</text>
+<rect x="588" y="919.0" width="236" height="52" rx="26" class="drop"/>
+<text x="706.0" y="941.0" class="t b dt" text-anchor="middle">Dropped on the proxy</text>
+<text x="706.0" y="960.0" class="t m dt" text-anchor="middle">e.g. headphones you don’t track</text>
+<path d="M96,745.0 H66 V934 H94" class="yline" stroke-width="1.8" marker-end="url(#y)"/>
+<text x="90" y="738.0" class="t b yt" text-anchor="end">yes</text>
+<text x="57" y="839.5" class="t m yt" text-anchor="middle" transform="rotate(-90 57 839.5)">skips the next question</text>
+<line x1="316" y1="978" x2="316" y2="1012" class="line" stroke-width="1.6" marker-end="url(#a)"/>
+<text x="324" y="1000.0" class="t no" text-anchor="start">no</text>
+<rect x="176.0" y="1012" width="280" height="46" rx="23" class="fwd"/>
+<text x="316" y="1041" class="t b ft" text-anchor="middle">Sent to Home Assistant</text>
+<path d="M96,396.0 H36 V1035 H174.0" class="yline" stroke-width="1.8" marker-end="url(#y)"/>
 <text x="44" y="388.0" class="t b yt" text-anchor="start">yes</text>
-<text x="26" y="675.5" class="t m yt" text-anchor="middle" transform="rotate(-90 26 675.5)">skips every question below</text>
-<text x="96" y="1006" class="t m" text-anchor="start">Every question is off until you set the options next to it.</text>
+<text x="26" y="715.5" class="t m yt" text-anchor="middle" transform="rotate(-90 26 715.5)">skips every question below</text>
+<text x="96" y="1086" class="t m" text-anchor="start">Every question is off until you set the options next to it.</text>
 </svg>
