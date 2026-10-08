@@ -8,8 +8,10 @@
   .drop { fill: #ffebe9; stroke: #cf222e; }
   .fwd { fill: #dafbe1; stroke: #1a7f37; }
   .yours { fill: #fff8c5; stroke: #9a6700; }
-  .line { stroke: #8c959f; fill: none; }
-  .head { fill: #8c959f; }
+  .rline { stroke: #cf222e; fill: none; }
+  .rhead { fill: #cf222e; }
+  .gline { stroke: #1a7f37; fill: none; }
+  .ghead { fill: #1a7f37; }
   .yline { stroke: #9a6700; fill: none; }
   .yhead { fill: #9a6700; }
   .t { fill: #1f2328; font: 15px system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; }
@@ -20,7 +22,7 @@
   .ft { fill: #116329; }
   .yt { fill: #6d4a00; }
   .yes { fill: #cf222e; font-size: 13px; }
-  .no { fill: #59636e; font-size: 13px; }
+  .no { font-size: 13px; }
   @media (prefers-color-scheme: dark) {
     .bg { fill: #0d1117; }
     .box { fill: #161b22; stroke: #3d444d; }
@@ -28,8 +30,10 @@
     .drop { fill: #3c1618; stroke: #f85149; }
     .fwd { fill: #12261e; stroke: #3fb950; }
     .yours { fill: #2e2a10; stroke: #d29922; }
-    .line { stroke: #6e7681; }
-    .head { fill: #6e7681; }
+    .rline { stroke: #f85149; }
+    .rhead { fill: #f85149; }
+    .gline { stroke: #3fb950; }
+    .ghead { fill: #3fb950; }
     .yline { stroke: #d29922; }
     .yhead { fill: #d29922; }
     .t { fill: #e6edf3; }
@@ -38,35 +42,34 @@
     .ft { fill: #7ee787; }
     .yt { fill: #e3b341; }
     .yes { fill: #ff7b72; }
-    .no { fill: #9198a1; }
   }
 </style>
-<defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="head"/></marker><marker id="y" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="yhead"/></marker></defs>
+<defs><marker id="r" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="rhead"/></marker><marker id="g" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="ghead"/></marker><marker id="y" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="yhead"/></marker></defs>
 <rect width="830" height="1102" class="bg"/>
 <rect x="150" y="16" width="300" height="44" rx="22" class="start"/>
 <text x="300" y="44" class="t b" text-anchor="middle">Your proxy hears an advertisement</text>
-<line x1="300" y1="60" x2="300" y2="94" class="line" stroke-width="1.6" marker-end="url(#a)"/>
+<line x1="300" y1="60" x2="300" y2="94" class="yline" stroke-width="1.6" marker-end="url(#y)"/>
 <rect x="80" y="94" width="440" height="66" rx="10" class="box"/>
 <text x="98" y="121" class="t b" text-anchor="start">Is it a device you told this proxy to ignore?</text>
 <text x="98" y="143" class="t m" text-anchor="start"><tspan class="code">mac_blocklist</tspan></text>
-<line x1="520" y1="127.0" x2="572" y2="127.0" class="line" stroke-width="1.6" marker-end="url(#a)"/>
+<line x1="520" y1="127.0" x2="572" y2="127.0" class="rline" stroke-width="1.6" marker-end="url(#r)"/>
 <text x="546.0" y="119.0" class="t yes" text-anchor="middle">yes</text>
 <rect x="572" y="101.0" width="236" height="52" rx="26" class="drop"/>
 <text x="690.0" y="123.0" class="t b dt" text-anchor="middle">Dropped on the proxy</text>
 <text x="690.0" y="142.0" class="t m dt" text-anchor="middle">e.g. a lock another proxy handles</text>
-<line x1="300" y1="160" x2="300" y2="194" class="line" stroke-width="1.6" marker-end="url(#a)"/>
-<text x="308" y="182.0" class="t no" text-anchor="start">no</text>
+<line x1="300" y1="160" x2="300" y2="194" class="yline" stroke-width="1.6" marker-end="url(#y)"/>
+<text x="308" y="182.0" class="t no yt" text-anchor="start">no</text>
 <rect x="80" y="194" width="440" height="86" rx="10" class="box"/>
 <text x="98" y="221" class="t b" text-anchor="start">Is it too far away?</text>
 <text x="98" y="243" class="t m" text-anchor="start"><tspan class="code">rssi_threshold</tspan>, <tspan class="code">rssi_floor</tspan></text>
 <text x="98" y="263" class="t m" text-anchor="start">Your devices can each have their own limit.</text>
-<line x1="520" y1="237.0" x2="572" y2="237.0" class="line" stroke-width="1.6" marker-end="url(#a)"/>
+<line x1="520" y1="237.0" x2="572" y2="237.0" class="rline" stroke-width="1.6" marker-end="url(#r)"/>
 <text x="546.0" y="229.0" class="t yes" text-anchor="middle">yes</text>
 <rect x="572" y="211.0" width="236" height="52" rx="26" class="drop"/>
 <text x="690.0" y="233.0" class="t b dt" text-anchor="middle">Dropped on the proxy</text>
 <text x="690.0" y="252.0" class="t m dt" text-anchor="middle">e.g. a neighbour’s thermometer</text>
-<line x1="300" y1="280" x2="300" y2="314" class="line" stroke-width="1.6" marker-end="url(#a)"/>
-<text x="308" y="302.0" class="t no" text-anchor="start">no</text>
+<line x1="300" y1="280" x2="300" y2="314" class="yline" stroke-width="1.6" marker-end="url(#y)"/>
+<text x="308" y="302.0" class="t no yt" text-anchor="start">no</text>
 <rect x="80" y="314" width="440" height="164" rx="10" class="yours"/>
 <text x="98" y="341" class="t b yt" text-anchor="start">Is it one of your devices?</text>
 <text x="106" y="366" class="t" text-anchor="start">•  Your phones and watches</text>
@@ -79,58 +82,58 @@
 <text x="330" y="432" class="t m" text-anchor="start"><tspan class="code">allow_findmy</tspan></text>
 <text x="106" y="454" class="t" text-anchor="start">•  Your own iBeacons</text>
 <text x="330" y="454" class="t m" text-anchor="start"><tspan class="code">allow_ibeacon</tspan></text>
-<line x1="300" y1="478" x2="300" y2="512" class="line" stroke-width="1.6" marker-end="url(#a)"/>
-<text x="308" y="500.0" class="t no" text-anchor="start">no</text>
+<line x1="300" y1="478" x2="300" y2="512" class="yline" stroke-width="1.6" marker-end="url(#y)"/>
+<text x="308" y="500.0" class="t no yt" text-anchor="start">no</text>
 <rect x="80" y="512" width="440" height="66" rx="10" class="box"/>
 <text x="98" y="539" class="t b" text-anchor="start">Is it someone else’s phone or watch?</text>
 <text x="98" y="561" class="t m" text-anchor="start"><tspan class="code">irks</tspan></text>
-<line x1="520" y1="545.0" x2="572" y2="545.0" class="line" stroke-width="1.6" marker-end="url(#a)"/>
+<line x1="520" y1="545.0" x2="572" y2="545.0" class="rline" stroke-width="1.6" marker-end="url(#r)"/>
 <text x="546.0" y="537.0" class="t yes" text-anchor="middle">yes</text>
 <rect x="572" y="519.0" width="236" height="52" rx="26" class="drop"/>
 <text x="690.0" y="541.0" class="t b dt" text-anchor="middle">Dropped on the proxy</text>
 <text x="690.0" y="560.0" class="t m dt" text-anchor="middle">e.g. people walking past</text>
-<line x1="300" y1="578" x2="300" y2="612" class="line" stroke-width="1.6" marker-end="url(#a)"/>
-<text x="308" y="600.0" class="t no" text-anchor="start">no</text>
+<line x1="300" y1="578" x2="300" y2="612" class="yline" stroke-width="1.6" marker-end="url(#y)"/>
+<text x="308" y="600.0" class="t no yt" text-anchor="start">no</text>
 <rect x="80" y="612" width="440" height="66" rx="10" class="box"/>
 <text x="98" y="639" class="t b" text-anchor="start">Is it an address nobody can track?</text>
 <text x="98" y="661" class="t m" text-anchor="start"><tspan class="code">drop_non_resolvable</tspan></text>
-<line x1="520" y1="645.0" x2="572" y2="645.0" class="line" stroke-width="1.6" marker-end="url(#a)"/>
+<line x1="520" y1="645.0" x2="572" y2="645.0" class="rline" stroke-width="1.6" marker-end="url(#r)"/>
 <text x="546.0" y="637.0" class="t yes" text-anchor="middle">yes</text>
 <rect x="572" y="619.0" width="236" height="52" rx="26" class="drop"/>
 <text x="690.0" y="641.0" class="t b dt" text-anchor="middle">Dropped on the proxy</text>
 <text x="690.0" y="660.0" class="t m dt" text-anchor="middle">e.g. gadgets hiding who they are</text>
-<line x1="300" y1="678" x2="300" y2="712" class="line" stroke-width="1.6" marker-end="url(#a)"/>
-<text x="308" y="700.0" class="t no" text-anchor="start">no</text>
+<line x1="300" y1="678" x2="300" y2="712" class="yline" stroke-width="1.6" marker-end="url(#y)"/>
+<text x="308" y="700.0" class="t no yt" text-anchor="start">no</text>
 <rect x="80" y="712" width="440" height="66" rx="10" class="yours"/>
 <text x="98" y="739" class="t b yt" text-anchor="start">Is it a HomeKit accessory?</text>
 <text x="98" y="761" class="t m" text-anchor="start"><tspan class="code">allow_homekit</tspan> (on by default)</text>
-<line x1="300" y1="778" x2="300" y2="812" class="line" stroke-width="1.6" marker-end="url(#a)"/>
-<text x="308" y="800.0" class="t no" text-anchor="start">no</text>
+<line x1="300" y1="778" x2="300" y2="812" class="yline" stroke-width="1.6" marker-end="url(#y)"/>
+<text x="308" y="800.0" class="t no yt" text-anchor="start">no</text>
 <rect x="80" y="812" width="440" height="66" rx="10" class="box"/>
 <text x="98" y="839" class="t b" text-anchor="start">Is it from a manufacturer you blocked?</text>
 <text x="98" y="861" class="t m" text-anchor="start"><tspan class="code">manufacturer_blocklist</tspan></text>
-<line x1="520" y1="845.0" x2="572" y2="845.0" class="line" stroke-width="1.6" marker-end="url(#a)"/>
+<line x1="520" y1="845.0" x2="572" y2="845.0" class="rline" stroke-width="1.6" marker-end="url(#r)"/>
 <text x="546.0" y="837.0" class="t yes" text-anchor="middle">yes</text>
 <rect x="572" y="819.0" width="236" height="52" rx="26" class="drop"/>
 <text x="690.0" y="841.0" class="t b dt" text-anchor="middle">Dropped on the proxy</text>
 <text x="690.0" y="860.0" class="t m dt" text-anchor="middle">e.g. Apple background chatter</text>
-<line x1="300" y1="878" x2="300" y2="912" class="line" stroke-width="1.6" marker-end="url(#a)"/>
-<text x="308" y="900.0" class="t no" text-anchor="start">no</text>
+<line x1="300" y1="878" x2="300" y2="912" class="yline" stroke-width="1.6" marker-end="url(#y)"/>
+<text x="308" y="900.0" class="t no yt" text-anchor="start">no</text>
 <rect x="80" y="912" width="440" height="66" rx="10" class="box"/>
 <text x="98" y="939" class="t b" text-anchor="start">Does its name match one you blocked?</text>
 <text x="98" y="961" class="t m" text-anchor="start"><tspan class="code">name_blocklist</tspan></text>
-<line x1="520" y1="945.0" x2="572" y2="945.0" class="line" stroke-width="1.6" marker-end="url(#a)"/>
+<line x1="520" y1="945.0" x2="572" y2="945.0" class="rline" stroke-width="1.6" marker-end="url(#r)"/>
 <text x="546.0" y="937.0" class="t yes" text-anchor="middle">yes</text>
 <rect x="572" y="919.0" width="236" height="52" rx="26" class="drop"/>
 <text x="690.0" y="941.0" class="t b dt" text-anchor="middle">Dropped on the proxy</text>
 <text x="690.0" y="960.0" class="t m dt" text-anchor="middle">e.g. headphones you don’t track</text>
 <path d="M80,745.0 H50 V934 H78" class="yline" stroke-width="1.8" marker-end="url(#y)"/>
 <text x="74" y="738.0" class="t b yt" text-anchor="end">yes</text>
-<line x1="300" y1="978" x2="300" y2="1012" class="line" stroke-width="1.6" marker-end="url(#a)"/>
-<text x="308" y="1000.0" class="t no" text-anchor="start">no</text>
+<line x1="300" y1="978" x2="300" y2="1012" class="gline" stroke-width="1.6" marker-end="url(#g)"/>
+<text x="308" y="1000.0" class="t no ft" text-anchor="start">no</text>
 <rect x="160.0" y="1012" width="280" height="46" rx="23" class="fwd"/>
 <text x="300" y="1041" class="t b ft" text-anchor="middle">Sent to Home Assistant</text>
-<path d="M80,396.0 H20 V1035 H158.0" class="yline" stroke-width="1.8" marker-end="url(#y)"/>
-<text x="28" y="388.0" class="t b yt" text-anchor="start">yes</text>
+<path d="M80,396.0 H20 V1035 H158.0" class="gline" stroke-width="1.8" marker-end="url(#g)"/>
+<text x="28" y="388.0" class="t b ft" text-anchor="start">yes</text>
 <text x="80" y="1086" class="t m" text-anchor="start">Every question is off until you set the options next to it.</text>
 </svg>
