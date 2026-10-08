@@ -1,0 +1,103 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 848" width="800" height="848" role="img" aria-labelledby="title desc">
+<title id="title">What ble_advert_filter does with each Bluetooth advertisement</title>
+<desc id="desc">Four questions in turn: a device you told the proxy to ignore, too far away, someone else's phone, background noise you blocked. A yes drops the advert on the proxy; four noes send it to Home Assistant. Your own devices skip the last two questions.</desc>
+<style>
+  .bg { fill: #ffffff; }
+  .box { fill: #f6f8fa; stroke: #d0d7de; }
+  .start { fill: #ddf4ff; stroke: #0969da; }
+  .drop { fill: #ffebe9; stroke: #cf222e; }
+  .fwd { fill: #dafbe1; stroke: #1a7f37; }
+  .yours { fill: #fff8c5; stroke: #9a6700; }
+  .line { stroke: #8c959f; fill: none; }
+  .head { fill: #8c959f; }
+  .t { fill: #1f2328; font: 15px system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; }
+  .b { font-weight: 600; }
+  .m { fill: #59636e; font-size: 13px; }
+  .code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12.5px; }
+  .dt { fill: #82071e; }
+  .ft { fill: #116329; }
+  .yt { fill: #6d4a00; }
+  .yes { fill: #cf222e; font-size: 13px; }
+  .no { fill: #59636e; font-size: 13px; }
+  @media (prefers-color-scheme: dark) {
+    .bg { fill: #0d1117; }
+    .box { fill: #161b22; stroke: #3d444d; }
+    .start { fill: #0c2d6b; stroke: #4493f8; }
+    .drop { fill: #3c1618; stroke: #f85149; }
+    .fwd { fill: #12261e; stroke: #3fb950; }
+    .yours { fill: #2e2a10; stroke: #d29922; }
+    .line { stroke: #6e7681; }
+    .head { fill: #6e7681; }
+    .t { fill: #e6edf3; }
+    .m { fill: #9198a1; }
+    .dt { fill: #ffa198; }
+    .ft { fill: #7ee787; }
+    .yt { fill: #e3b341; }
+    .yes { fill: #ff7b72; }
+    .no { fill: #9198a1; }
+  }
+</style>
+<defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="head"/></marker></defs>
+<rect width="800" height="848" class="bg"/>
+<rect x="95" y="16" width="300" height="44" rx="22" class="start"/>
+<text x="245" y="44" class="t b" text-anchor="middle">Your proxy hears an advertisement</text>
+<line x1="245" y1="60" x2="245" y2="94" class="line" stroke-width="1.6" marker-end="url(#a)"/>
+<rect x="30" y="94" width="430" height="66" rx="10" class="box"/>
+<text x="48" y="121" class="t b" text-anchor="start">Is it a device you told this proxy to ignore?</text>
+<text x="48" y="143" class="t m" text-anchor="start"><tspan class="code">mac_blocklist</tspan></text>
+<line x1="460" y1="127.0" x2="520" y2="127.0" class="line" stroke-width="1.6" marker-end="url(#a)"/>
+<text x="490.0" y="119.0" class="t yes" text-anchor="middle">yes</text>
+<rect x="520" y="101.0" width="250" height="52" rx="26" class="drop"/>
+<text x="645.0" y="123.0" class="t b dt" text-anchor="middle">Dropped on the proxy</text>
+<text x="645.0" y="142.0" class="t m dt" text-anchor="middle">e.g. a lock another proxy handles</text>
+<line x1="245" y1="160" x2="245" y2="194" class="line" stroke-width="1.6" marker-end="url(#a)"/>
+<text x="253" y="182.0" class="t no" text-anchor="start">no</text>
+<rect x="30" y="194" width="430" height="66" rx="10" class="box"/>
+<text x="48" y="221" class="t b" text-anchor="start">Is it too far away?</text>
+<text x="48" y="243" class="t m" text-anchor="start"><tspan class="code">rssi_threshold</tspan>, <tspan class="code">rssi_floor</tspan></text>
+<line x1="460" y1="227.0" x2="520" y2="227.0" class="line" stroke-width="1.6" marker-end="url(#a)"/>
+<text x="490.0" y="219.0" class="t yes" text-anchor="middle">yes</text>
+<rect x="520" y="201.0" width="250" height="52" rx="26" class="drop"/>
+<text x="645.0" y="223.0" class="t b dt" text-anchor="middle">Dropped on the proxy</text>
+<text x="645.0" y="242.0" class="t m dt" text-anchor="middle">e.g. a neighbour’s thermometer</text>
+<line x1="245" y1="260" x2="245" y2="294" class="line" stroke-width="1.6" marker-end="url(#a)"/>
+<text x="253" y="282.0" class="t no" text-anchor="start">no</text>
+<rect x="30" y="294" width="430" height="66" rx="10" class="box"/>
+<text x="48" y="321" class="t b" text-anchor="start">Is it someone else’s phone or watch?</text>
+<text x="48" y="343" class="t m" text-anchor="start"><tspan class="code">irks</tspan></text>
+<line x1="460" y1="327.0" x2="520" y2="327.0" class="line" stroke-width="1.6" marker-end="url(#a)"/>
+<text x="490.0" y="319.0" class="t yes" text-anchor="middle">yes</text>
+<rect x="520" y="301.0" width="250" height="52" rx="26" class="drop"/>
+<text x="645.0" y="323.0" class="t b dt" text-anchor="middle">Dropped on the proxy</text>
+<text x="645.0" y="342.0" class="t m dt" text-anchor="middle">e.g. people walking past</text>
+<line x1="245" y1="360" x2="245" y2="394" class="line" stroke-width="1.6" marker-end="url(#a)"/>
+<text x="253" y="382.0" class="t no" text-anchor="start">no</text>
+<rect x="30" y="394" width="430" height="86" rx="10" class="box"/>
+<text x="48" y="421" class="t b" text-anchor="start">Is it background noise you blocked?</text>
+<text x="48" y="443" class="t m" text-anchor="start"><tspan class="code">manufacturer_blocklist</tspan>, <tspan class="code">name_blocklist</tspan>,</text>
+<text x="48" y="463" class="t m" text-anchor="start"><tspan class="code">drop_non_resolvable</tspan></text>
+<line x1="460" y1="437.0" x2="520" y2="437.0" class="line" stroke-width="1.6" marker-end="url(#a)"/>
+<text x="490.0" y="429.0" class="t yes" text-anchor="middle">yes</text>
+<rect x="520" y="411.0" width="250" height="52" rx="26" class="drop"/>
+<text x="645.0" y="433.0" class="t b dt" text-anchor="middle">Dropped on the proxy</text>
+<text x="645.0" y="452.0" class="t m dt" text-anchor="middle">e.g. Apple Continuity chatter, earbuds</text>
+<line x1="245" y1="480" x2="245" y2="514" class="line" stroke-width="1.6" marker-end="url(#a)"/>
+<text x="253" y="502.0" class="t no" text-anchor="start">no</text>
+<rect x="105" y="514" width="280" height="46" rx="23" class="fwd"/>
+<text x="245" y="543" class="t b ft" text-anchor="middle">Sent to Home Assistant</text>
+<rect x="30" y="590" width="740" height="216" rx="10" class="yours"/>
+<text x="48" y="618" class="t b yt" text-anchor="start">Your devices skip the last two questions</text>
+<text x="60" y="646" class="t" text-anchor="start">•  Your phones and watches</text>
+<text x="360" y="646" class="t m" text-anchor="start"><tspan class="code">irks</tspan></text>
+<text x="60" y="668" class="t" text-anchor="start">•  Devices you always want</text>
+<text x="360" y="668" class="t m" text-anchor="start"><tspan class="code">mac_allowlist</tspan></text>
+<text x="60" y="690" class="t" text-anchor="start">•  Devices being paired</text>
+<text x="360" y="690" class="t m" text-anchor="start"><tspan class="code">service_uuid_allowlist</tspan></text>
+<text x="60" y="712" class="t" text-anchor="start">•  AirTags and other FindMy items</text>
+<text x="360" y="712" class="t m" text-anchor="start"><tspan class="code">allow_findmy</tspan></text>
+<text x="60" y="734" class="t" text-anchor="start">•  Your own iBeacons</text>
+<text x="360" y="734" class="t m" text-anchor="start"><tspan class="code">allow_ibeacon</tspan></text>
+<text x="48" y="766" class="t m" text-anchor="start">Distance still counts for them, and each can have its own limit.</text>
+<text x="48" y="788" class="t m" text-anchor="start">HomeKit accessories are never counted as Apple noise (<tspan class="code">allow_homekit</tspan>, on by default).</text>
+<text x="30" y="832" class="t m" text-anchor="start">Every question is off until you set the options next to it.</text>
+</svg>
