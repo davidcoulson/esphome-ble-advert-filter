@@ -75,7 +75,7 @@
 <text x="346" y="388" class="t m" text-anchor="start"><tspan class="code">mac_allowlist</tspan></text>
 <text x="122" y="410" class="t" text-anchor="start">•  Devices being paired</text>
 <text x="346" y="410" class="t m" text-anchor="start"><tspan class="code">service_uuid_allowlist</tspan></text>
-<text x="122" y="432" class="t" text-anchor="start">•  AirTags and other FindMy items</text>
+<text x="122" y="432" class="t" text-anchor="start">•  AirTags and FindMy items</text>
 <text x="346" y="432" class="t m" text-anchor="start"><tspan class="code">allow_findmy</tspan></text>
 <text x="122" y="454" class="t" text-anchor="start">•  Your own iBeacons</text>
 <text x="346" y="454" class="t m" text-anchor="start"><tspan class="code">allow_ibeacon</tspan></text>
