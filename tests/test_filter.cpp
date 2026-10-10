@@ -469,6 +469,14 @@ int main() {
     x.fwd(STATIC_ADDR, RANDOM, -60, {});
     check(true, "200,000 random and truncated payloads: no overread, no UB");
   }
+  {
+    // A null payload with a length: every walker enabled, so without the
+    // guard in should_forward() this dereferences null under ASan.
+    Fixture x; fleet_config(x);
+    x.f.add_blocked_name("x");
+    RawAdvertisement a{STATIC_ADDR, nullptr, 31, -60, RANDOM};
+    check(x.f.should_forward(a), "a null payload with a length is treated as empty, not read");
+  }
 
   std::printf("\n%s\n", failures ? "FAILED" : "all passed");
   return failures ? 1 : 0;

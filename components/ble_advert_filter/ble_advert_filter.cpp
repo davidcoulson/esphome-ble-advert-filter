@@ -581,6 +581,12 @@ bool BLEAdvertFilter::should_forward(const ble_device_base::RawAdvertisement &ad
   // cheapest test there is, it runs first, and it applies to everything, so the
   // bulk of distant noise never reaches the categoriser at all.
 
+  // The payload walkers below index `data` directly. ESPHome always passes a
+  // pointer into a scan buffer, but treat a null one as an empty payload
+  // rather than trust every producer of RawAdvertisement to keep doing so.
+  const uint8_t *const data = adv.data;
+  const uint16_t data_len = adv.data != nullptr ? adv.data_len : 0;
+
   // 1. Ignored outright, ahead of every allow rule: the point of this list is
   //    "this proxy does not handle this device", which a broader allowlist
   //    entry must not be able to override.
@@ -659,7 +665,7 @@ bool BLEAdvertFilter::should_forward(const ble_device_base::RawAdvertisement &ad
   int8_t ibeacon_limit = IBEACON_RSSI_INHERIT;
   bool ibeacon_has_limit = false;
   if (category == CAT_DEFAULT && (this->allow_ibeacon_ || !this->ibeacon_rules_.empty()) &&
-      this->ibeacon_match_(adv.data, adv.data_len, &ibeacon_limit)) {
+      this->ibeacon_match_(data, data_len, &ibeacon_limit)) {
     category = CAT_IBEACON;
     // A rule with no rssi of its own INHERITS: it only exempts the advert from
     // the manufacturer blocklist and leaves the distance rules alone. Omitting
@@ -672,7 +678,7 @@ bool BLEAdvertFilter::should_forward(const ble_device_base::RawAdvertisement &ad
   // subtype exempted from the Apple blocklist, optionally with its own RSSI
   // limit), same place in the chain.
   bool findmy_has_limit = false;
-  if (category == CAT_DEFAULT && this->allow_findmy_ && this->findmy_match_(adv.data, adv.data_len)) {
+  if (category == CAT_DEFAULT && this->allow_findmy_ && this->findmy_match_(data, data_len)) {
     category = CAT_FINDMY;
     findmy_has_limit = (this->findmy_rssi_ != IBEACON_RSSI_INHERIT);
     protected_addr = true;
@@ -683,7 +689,7 @@ bool BLEAdvertFilter::should_forward(const ble_device_base::RawAdvertisement &ad
   // pairing mode advertises from a rotating private address, which the
   // non-resolvable test below would otherwise discard.
   if (category == CAT_DEFAULT && (!this->service_uuid_allowlist_.empty() || !this->service_uuid128_.empty()) &&
-      this->payload_has_allowed_service_uuid_(adv.data, adv.data_len)) {
+      this->payload_has_allowed_service_uuid_(data, data_len)) {
     category = CAT_UUID;
     protected_addr = true;
     this->adv_allowed_service_uuid_++;
@@ -774,7 +780,7 @@ bool BLEAdvertFilter::should_forward(const ble_device_base::RawAdvertisement &ad
 
   // 7. Payload-based filters last: by here most traffic has already gone.
   if (!protected_addr && (!this->name_blocklist_.empty() || !this->manufacturer_blocklist_.empty()) &&
-      this->payload_blocked_(adv.data, adv.data_len)) {
+      this->payload_blocked_(data, data_len)) {
     this->adv_dropped_++;
     ESP_LOGVV(TAG, "Dropping packet from %012" PRIX64 ": blocklisted name or manufacturer", adv.address);
     return false;
