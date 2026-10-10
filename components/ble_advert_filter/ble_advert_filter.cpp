@@ -78,8 +78,12 @@ bool BLEAdvertFilter::findmy_match_(const uint8_t *data, uint16_t len) const {
   uint16_t i = 0;
   while (i < len) {
     const uint8_t field_len = data[i];
-    if (field_len == 0)
-      break;
+    if (field_len == 0) {
+      // Padding, not the end: ESPHome passes the advert and its scan response
+      // as one buffer, so stopping here would skip the whole scan response.
+      i++;
+      continue;
+    }
     if (static_cast<uint32_t>(i) + 1u + field_len > len)
       break;
     if (data[i + 1] == 0xFF && field_len >= 4) {
@@ -135,8 +139,12 @@ bool BLEAdvertFilter::ibeacon_match_(const uint8_t *data, uint16_t len, int8_t *
   uint16_t i = 0;
   while (i < len) {
     const uint8_t field_len = data[i];
-    if (field_len == 0)
-      break;
+    if (field_len == 0) {
+      // Padding, not the end: ESPHome passes the advert and its scan response
+      // as one buffer, so stopping here would skip the whole scan response.
+      i++;
+      continue;
+    }
     if (static_cast<uint32_t>(i) + 1u + field_len > len)
       break;
     if (data[i + 1] == 0xFF && field_len >= 4) {
@@ -147,9 +155,12 @@ bool BLEAdvertFilter::ibeacon_match_(const uint8_t *data, uint16_t len, int8_t *
           return true;
         }
         // Only a complete iBeacon carries uuid/major/minor, so a truncated one
-        // cannot be matched against a rule.
-        if (field_len < 26)
-          return false;
+        // cannot be matched against a rule - but a later one in the same
+        // payload (e.g. in the scan response) still can.
+        if (field_len < 26) {
+          i += field_len + 1;
+          continue;
+        }
         const uint8_t *uuid = &data[i + 6];
         const uint16_t major = (static_cast<uint16_t>(data[i + 22]) << 8) | data[i + 23];
         const uint16_t minor = (static_cast<uint16_t>(data[i + 24]) << 8) | data[i + 25];
@@ -164,7 +175,7 @@ bool BLEAdvertFilter::ibeacon_match_(const uint8_t *data, uint16_t len, int8_t *
           *limit_out = rule.rssi;
           return true;
         }
-        return false;
+        // No rule for this one; keep looking for another iBeacon.
       }
     }
     i += field_len + 1;
@@ -179,8 +190,12 @@ bool BLEAdvertFilter::payload_blocked_(const uint8_t *data, uint16_t len) const 
   uint16_t i = 0;
   while (i < len) {
     const uint8_t field_len = data[i];
-    if (field_len == 0)
-      break;  // Zero length terminates the payload.
+    if (field_len == 0) {
+      // Padding, not the end: ESPHome passes the advert and its scan response
+      // as one buffer, so stopping here would skip the whole scan response.
+      i++;
+      continue;
+    }
     // Reject a structure that claims to run past the buffer (truncated packet).
     if (static_cast<uint32_t>(i) + 1u + field_len > len)
       break;
@@ -271,8 +286,12 @@ bool BLEAdvertFilter::payload_has_allowed_service_uuid_(const uint8_t *data, uin
   uint16_t i = 0;
   while (i < len) {
     const uint8_t field_len = data[i];
-    if (field_len == 0)
-      break;  // Zero length terminates the payload.
+    if (field_len == 0) {
+      // Padding, not the end: ESPHome passes the advert and its scan response
+      // as one buffer, so stopping here would skip the whole scan response.
+      i++;
+      continue;
+    }
     // Reject a structure that claims to run past the buffer (truncated packet).
     if (static_cast<uint32_t>(i) + 1u + field_len > len)
       break;
@@ -484,8 +503,16 @@ void BLEAdvertFilter::setup() {
     this->service_uuid128_.reserve(this->service_uuid128_hex_.size());
     for (const char *hex : this->service_uuid128_hex_) {
       std::array<uint8_t, 16> uuid{};
-      if (parse_hex(hex, 32, uuid.data(), 16) == 32)
-        this->service_uuid128_.push_back(uuid);
+      if (parse_hex(hex, 32, uuid.data(), 16) != 32)
+        continue;
+      // 0000xxxx-0000-1000-8000-00805f9b34fb is the 16-bit UUID xxxx written
+      // out in full. Devices advertise the short form, so match that too -
+      // the reverse (short configured, long advertised) already works in
+      // uuid128_matches_().
+      if (memcmp(uuid.data(), BT_BASE_UUID, 2) == 0 && memcmp(uuid.data() + 4, BT_BASE_UUID + 4, 12) == 0) {
+        this->service_uuid_allowlist_.push_back(static_cast<uint16_t>((uuid[2] << 8) | uuid[3]));
+      }
+      this->service_uuid128_.push_back(uuid);
     }
     this->service_uuid128_hex_.clear();
     this->service_uuid128_hex_.shrink_to_fit();
@@ -636,12 +663,8 @@ bool BLEAdvertFilter::should_forward(const ble_device_base::RawAdvertisement &ad
 
   // An RPA is identified from two bits of the address, so the expensive part
   // (irk_matches_, which runs AES per key) is reached only by actual RPAs.
-  //
-  // allow_espressif exempts our own ESPs. It is a safety net, not load-bearing:
-  // ESPHome advertises on the public MAC, and a public address is never an RPA.
   bool unresolved_rpa = false;
-  if (category == CAT_DEFAULT && !this->irks_.empty() && this->address_is_rpa_(adv.address, adv.addr_type) &&
-      !(this->allow_espressif_ && this->is_espressif_oui_(adv.address))) {
+  if (category == CAT_DEFAULT && !this->irks_.empty() && this->address_is_rpa_(adv.address, adv.addr_type)) {
     if (this->irk_matches_cached_(adv.address)) {
       // One of ours. Protected so the payload filters below cannot discard it -
       // our phones and watches advertise Apple manufacturer data, which a
@@ -654,7 +677,14 @@ bool BLEAdvertFilter::should_forward(const ble_device_base::RawAdvertisement &ad
       // advance, and a device in pairing mode may well advertise from an RPA.
       // Dropping here made service_uuid_allowlist unable to rescue one, which
       // is the case it is documented to cover. Decided after categorisation.
-      unresolved_rpa = true;
+      //
+      // allow_espressif spares an RPA whose random part happens to look like an
+      // Espressif OUI. It is a safety net, not load-bearing: ESPHome advertises
+      // on the public MAC, which is never an RPA. It is applied only AFTER the
+      // IRK test: before it, a phone whose rotating address landed on one of
+      // those prefixes (~1 rotation in 58,000) skipped resolution and was
+      // dropped as somebody else's despite a correct key.
+      unresolved_rpa = !(this->allow_espressif_ && this->is_espressif_oui_(adv.address));
     }
   }
 
