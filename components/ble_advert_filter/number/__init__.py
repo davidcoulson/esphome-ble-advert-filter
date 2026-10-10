@@ -63,6 +63,20 @@ def _validate_range(config: ConfigType) -> ConfigType:
             f"{CONF_MIN_VALUE} ({minimum}) must be below {CONF_MAX_VALUE} ({maximum})",
             path=[CONF_RSSI_THRESHOLD],
         )
+    # The dial starts at the filter's own rssi_threshold. Outside the dial's
+    # range (including the -127 "off" default) it would show a value it can't
+    # be set to, so require one inside it rather than silently changing it.
+    threshold = (
+        fv.full_config.get().get("ble_advert_filter", {}).get(CONF_RSSI_THRESHOLD, -127)
+    )
+    if not minimum <= threshold <= maximum:
+        current = "isn't set" if threshold == -127 else f"is {threshold}"
+        raise cv.Invalid(
+            f"The dial starts at the filter's {CONF_RSSI_THRESHOLD}, which {current}. "
+            f"Set {CONF_RSSI_THRESHOLD} under ble_advert_filter: to a value from "
+            f"{minimum} to {maximum}, or widen the dial's {CONF_MIN_VALUE}/{CONF_MAX_VALUE}.",
+            path=[CONF_RSSI_THRESHOLD],
+        )
     return config
 
 

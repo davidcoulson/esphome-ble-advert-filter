@@ -57,6 +57,10 @@ jobs:
           # this. Year and month are enough: "2026.10.0b1", "2026.11.0-dev".
           year, month = (int(p) for p in v.split(".")[:2])
           print(f"skip={'true' if (year, month) < (2026, 10) else 'false'}")
+          # ISO week, for the cache key below.
+          import datetime
+          y, w, _ = datetime.date.today().isocalendar()
+          print(f"week={y}-W{w:02d}")
           PY
 
       - name: Skipped - ${{ steps.version.outputs.version }} predates the hook
@@ -67,10 +71,11 @@ jobs:
         if: steps.version.outputs.skip != 'true'
         with:
           path: ~/.platformio
-          # Saved fresh every run and restored from the newest match. A dev
-          # version string ("2026.11.0-dev") stays the same for a month while
-          # its toolchain moves, and an exact-match key would never re-save.
-          key: platformio-${{ steps.version.outputs.version }}-${{ matrix.target }}-${{ github.run_id }}
+          # One cache per version, chip and week. ~/.platformio is several GB,
+          # so saving every run would fill GitHub's 10 GB limit and evict the
+          # caches the next run needs; once a week still refreshes a dev
+          # version string ("2026.11.0-dev") whose toolchain moves under it.
+          key: platformio-${{ steps.version.outputs.version }}-${{ matrix.target }}-${{ steps.version.outputs.week }}
           restore-keys: platformio-${{ steps.version.outputs.version }}-${{ matrix.target }}-
 
       - name: Compile ${{ matrix.target }} on ESPHome ${{ steps.version.outputs.version }}

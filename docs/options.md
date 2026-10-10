@@ -166,8 +166,8 @@ reflashing. The YAML value is the starting point. With `restore_value`, whatever
 Home Assistant is kept across reboots and used from then on.
 
 `min_value` can't be lower than `rssi_floor`: the floor already drops anything weaker, so those
-settings would do nothing. Set `rssi_threshold` in the YAML too, or the dial starts out off
-(-127), below its own range.
+settings would do nothing. The filter's `rssi_threshold` must be set, and inside the dial's
+range, since that's where the dial starts; the config check tells you if it isn't.
 
 ## Actions
 
