@@ -1,0 +1,83 @@
+name: compile
+
+# Builds tests/compile/ with real ESPHome and ESP-IDF. The host tests stub out
+# ESPHome, so only this catches an upstream change to the AdvertisementFilter
+# hook, RawAdvertisement or the sensor/number/action APIs this component uses.
+#
+#   latest  newest release or beta (pip --pre): what the next release will be
+#   stable  newest release; skipped while that predates the hook (< 2026.10.0)
+#   dev     esphome@dev, weekly; allowed to fail so an upstream break is
+#           reported without blocking merges here
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: "17 6 * * 1"   # weekly, to catch drift while this repo is quiet
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  compile:
+    name: ${{ matrix.channel }} / ${{ matrix.target }}
+    runs-on: ubuntu-latest
+    continue-on-error: ${{ matrix.channel == 'dev' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { channel: latest, target: esp32-c3 }
+          - { channel: latest, target: esp32-s3 }
+          - { channel: stable, target: esp32-c3 }
+          - { channel: dev, target: esp32-c3 }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install ESPHome (${{ matrix.channel }})
+        run: |
+          case "${{ matrix.channel }}" in
+            latest) pip install --pre esphome ;;
+            stable) pip install esphome ;;
+            dev)    pip install https://github.com/esphome/esphome/archive/refs/heads/dev.zip ;;
+          esac
+
+      - name: Resolve version
+        id: version
+        run: |
+          python - <<'PY' >> "$GITHUB_OUTPUT"
+          from esphome.const import __version__ as v
+          print(f"version={v}")
+          # The hook ships in 2026.10 (betas included); nothing older can build
+          # this. Year and month are enough: "2026.10.0b1", "2026.11.0-dev".
+          year, month = (int(p) for p in v.split(".")[:2])
+          print(f"skip={'true' if (year, month) < (2026, 10) else 'false'}")
+          # ISO week, for the cache key below.
+          import datetime
+          y, w, _ = datetime.date.today().isocalendar()
+          print(f"week={y}-W{w:02d}")
+          PY
+
+      - name: Skipped - ${{ steps.version.outputs.version }} predates the hook
+        if: steps.version.outputs.skip == 'true'
+        run: echo "::notice::ESPHome ${{ steps.version.outputs.version }} predates the AdvertisementFilter hook (2026.10.0); nothing to build."
+
+      - uses: actions/cache@v4
+        if: steps.version.outputs.skip != 'true'
+        with:
+          path: ~/.platformio
+          # One cache per version, chip and week. ~/.platformio is several GB,
+          # so saving every run would fill GitHub's 10 GB limit and evict the
+          # caches the next run needs; once a week still refreshes a dev
+          # version string ("2026.11.0-dev") whose toolchain moves under it.
+          key: platformio-${{ steps.version.outputs.version }}-${{ matrix.target }}-${{ steps.version.outputs.week }}
+          restore-keys: platformio-${{ steps.version.outputs.version }}-${{ matrix.target }}-
+
+      - name: Compile ${{ matrix.target }} on ESPHome ${{ steps.version.outputs.version }}
+        if: steps.version.outputs.skip != 'true'
+        run: esphome compile tests/compile/${{ matrix.target }}.yaml

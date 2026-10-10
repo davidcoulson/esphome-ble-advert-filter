@@ -152,6 +152,46 @@ int main() {
     check(x.fwd(STATIC_ADDR, 3, -60, FLAGS), "a static random identity address (type 3) passes");
   }
 
+  std::printf("\n== RPA verdict cache ==\n");
+  {
+    Fixture x; x.f.set_irks_hex(SPEC_IRK); x.f.setup();
+    for (int i = 0; i < 50; i++) x.fwd(STRANGER_RPA, RANDOM, -60, FLAGS);
+    check(x.f.get_irk_resolutions() == 1 && x.f.get_adv_dropped_rpa() == 50,
+          "a stranger's RPA heard 50 times is resolved once, and dropped every time");
+    for (int i = 0; i < 50; i++) x.fwd(SPEC_RPA, RANDOM, -60, FLAGS);
+    check(x.f.get_irk_resolutions() == 2 && x.f.get_adv_forwarded_irk() == 50,
+          "our own RPA is resolved once too, and forwarded every time");
+    check(!x.fwd(SPEC_RPA ^ 1, RANDOM, -60, FLAGS) && x.f.get_irk_resolutions() == 3,
+          "a neighbouring address is its own entry, not a hit on ours");
+  }
+  {
+    // The stale-verdict case the cache must not get wrong: a phone is "not
+    // ours" until its key is added, then must resolve straight away.
+    Fixture x; x.f.set_irks_hex("ffeeddccbbaa99887766554433221100"); x.f.setup();
+    check(!x.fwd(SPEC_RPA, RANDOM, -60, FLAGS), "before its key is loaded, the spec RPA is somebody else's");
+    x.f.set_irks(SPEC_IRK);
+    check(x.fwd(SPEC_RPA, RANDOM, -60, FLAGS), "set_irks() empties the cache, so the same address resolves at once");
+    x.f.clear_irks();
+    x.f.set_irks("ffeeddccbbaa99887766554433221100");
+    check(!x.fwd(SPEC_RPA, RANDOM, -60, FLAGS), "and a removed key stops matching at once, not when the entry ages out");
+  }
+  {
+    // Fill the cache past capacity with strangers: the oldest verdict is the
+    // one evicted, and every verdict stays correct throughout.
+    Fixture x; x.f.set_irks_hex(SPEC_IRK); x.f.setup();
+    x.fwd(SPEC_RPA, RANDOM, -60, FLAGS);
+    bool all_dropped = true;
+    for (uint64_t n = 0; n < BLEAdvertFilter::RPA_CACHE_SIZE; n++)
+      all_dropped &= !x.fwd(STRANGER_RPA + n, RANDOM, -60, FLAGS);
+    check(all_dropped, "a cache's worth of distinct strangers are all dropped");
+    const uint32_t before = x.f.get_irk_resolutions();
+    check(x.fwd(SPEC_RPA, RANDOM, -60, FLAGS) && x.f.get_irk_resolutions() == before + 1,
+          "our RPA, evicted as the oldest entry, is re-resolved - and still forwarded");
+    check(!x.fwd(STRANGER_RPA + BLEAdvertFilter::RPA_CACHE_SIZE - 1, RANDOM, -60, FLAGS) &&
+              x.f.get_irk_resolutions() == before + 1,
+          "while the newest stranger is still a cache hit");
+  }
+
   std::printf("\n== an unconfigured filter is a no-op ==\n");
   {
     Fixture x; x.f.setup();

@@ -5,23 +5,34 @@ esphome/esphome#19220), so advertisements are dropped on the device instead of
 being forwarded for Home Assistant to discard.
 """
 
+from esphome import automation
 import esphome.codegen as cg
 from esphome.components import bluetooth_proxy
 import esphome.config_validation as cv
 from esphome.const import CONF_ID
-from esphome.core import MACAddress
+from esphome.core import ID, MACAddress
+from esphome.cpp_generator import MockObj, TemplateArgsType
 from esphome.types import ConfigType
 
 # Read by the `component_version` text_sensor platform, if the user adds one.
 # A plain constant rather than a registration call, so this component needs no
 # dependency on it and there is no codegen ordering to get wrong.
-COMPONENT_VERSION = "2026.09.19.2"
+COMPONENT_VERSION = "2.0.0"
 
 DEPENDENCIES = ["bluetooth_proxy"]
 CODEOWNERS = ["@davidcoulson"]
 
 ble_advert_filter_ns = cg.esphome_ns.namespace("ble_advert_filter")
 BLEAdvertFilter = ble_advert_filter_ns.class_("BLEAdvertFilter", cg.Component)
+SetIrksAction = ble_advert_filter_ns.class_(
+    "SetIrksAction", automation.Action, cg.Parented.template(BLEAdvertFilter)
+)
+ClearIrksAction = ble_advert_filter_ns.class_(
+    "ClearIrksAction", automation.Action, cg.Parented.template(BLEAdvertFilter)
+)
+
+# How the sensor and number platforms name the filter they read.
+CONF_BLE_ADVERT_FILTER_ID = "ble_advert_filter_id"
 
 CONF_BLUETOOTH_PROXY_ID = "bluetooth_proxy_id"
 CONF_RSSI_THRESHOLD = "rssi_threshold"
@@ -320,3 +331,48 @@ async def to_code(config: ConfigType) -> None:
             cg.add(var.add_allowed_service_uuid128(uuid))
         else:
             cg.add(var.add_allowed_service_uuid(uuid))
+
+
+@automation.register_action(
+    "ble_advert_filter.set_irks",
+    SetIrksAction,
+    # Also takes the value directly: `ble_advert_filter.set_irks: !lambda ...`.
+    cv.maybe_simple_value(
+        {
+            cv.GenerateID(): cv.use_id(BLEAdvertFilter),
+            # Free text: every run of exactly 32 hex characters is a key, so a
+            # Home Assistant entity can keep a label next to each one.
+            cv.Required(CONF_IRKS): cv.templatable(cv.string),
+        },
+        key=CONF_IRKS,
+    ),
+    synchronous=True,
+)
+async def set_irks_to_code(
+    config: ConfigType,
+    action_id: ID,
+    template_arg: cg.TemplateArguments,
+    args: TemplateArgsType,
+) -> MockObj:
+    var = cg.new_Pvariable(action_id, template_arg)
+    await cg.register_parented(var, config[CONF_ID])
+    template_ = await cg.templatable(config[CONF_IRKS], args, cg.std_string)
+    cg.add(var.set_irks(template_))
+    return var
+
+
+@automation.register_action(
+    "ble_advert_filter.clear_irks",
+    ClearIrksAction,
+    cv.Schema({cv.GenerateID(): cv.use_id(BLEAdvertFilter)}),
+    synchronous=True,
+)
+async def clear_irks_to_code(
+    config: ConfigType,
+    action_id: ID,
+    template_arg: cg.TemplateArguments,
+    args: TemplateArgsType,
+) -> MockObj:
+    var = cg.new_Pvariable(action_id, template_arg)
+    await cg.register_parented(var, config[CONF_ID])
+    return var

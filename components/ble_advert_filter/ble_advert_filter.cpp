@@ -370,6 +370,7 @@ int BLEAdvertFilter::set_irks(const std::string &text) {
     return -1;
   }
   this->irks_ = std::move(parsed);
+  this->clear_rpa_cache_();
   this->recompute_gate_();
   ESP_LOGI(TAG, "Loaded %u IRK(s) at runtime", static_cast<unsigned>(this->irks_.size()));
   return static_cast<int>(this->irks_.size());
@@ -436,6 +437,34 @@ bool BLEAdvertFilter::irk_matches_(uint64_t addr) const {
   return false;
 }
 
+bool BLEAdvertFilter::irk_matches_cached_(uint64_t addr) {
+  // An RPA is stable for its rotation period (about 15 minutes on phones) and
+  // is advertised several times a second meanwhile, so nearly every lookup is a
+  // repeat. Without this, each repeat from somebody else's phone re-runs one
+  // AES key schedule and block per loaded key - the whole cost of IRK gating.
+  constexpr uint64_t ADDR_MASK = 0xFFFFFFFFFFFFULL;
+  constexpr uint64_t OURS = 1ULL << 63;
+  if (this->rpa_cache_.empty())
+    this->rpa_cache_.assign(RPA_CACHE_SIZE, 0);
+  for (const uint64_t entry : this->rpa_cache_) {
+    if (entry != 0 && (entry & ADDR_MASK) == addr)
+      return (entry & OURS) != 0;
+  }
+  this->irk_resolutions_++;
+  const bool ours = this->irk_matches_(addr);
+  this->rpa_cache_[this->rpa_cache_next_] = (addr & ADDR_MASK) | (ours ? OURS : 0);
+  this->rpa_cache_next_ = static_cast<uint8_t>((this->rpa_cache_next_ + 1) % RPA_CACHE_SIZE);
+  return ours;
+}
+
+void BLEAdvertFilter::clear_rpa_cache_() {
+  // Every verdict was computed against the old key list, so all of them go -
+  // a cached "not ours" would otherwise keep hiding a phone whose key was
+  // just added.
+  std::fill(this->rpa_cache_.begin(), this->rpa_cache_.end(), 0);
+  this->rpa_cache_next_ = 0;
+}
+
 void BLEAdvertFilter::setup() {
   // Unpack the compile-time IRK blob (concatenated 32-hex-char keys) once, so
   // the advertisement path only ever touches the parsed vector.
@@ -448,6 +477,7 @@ void BLEAdvertFilter::setup() {
         this->irks_.push_back(irk);
     }
     this->irks_hex_ = nullptr;
+    this->clear_rpa_cache_();
   }
 
   if (!this->service_uuid128_hex_.empty()) {
@@ -469,15 +499,45 @@ void BLEAdvertFilter::setup() {
 }
 
 void BLEAdvertFilter::dump_config() {
+  // -127 means "off" for the threshold and floor and "inherit" for the
+  // per-category limits; print that rather than a number nobody configured.
+  auto log_limit = [](const char *label, int8_t limit, const char *unset) {
+    if (limit == -127) {
+      ESP_LOGCONFIG(TAG, "  %s: %s", label, unset);
+    } else {
+      ESP_LOGCONFIG(TAG, "  %s: %d dBm", label, limit);
+    }
+  };
   ESP_LOGCONFIG(TAG, "BLE Advertisement Filter:");
-  ESP_LOGCONFIG(TAG, "  RSSI threshold: %d dBm", this->rssi_threshold_);
+  log_limit("RSSI threshold", this->rssi_threshold_, "off");
+  log_limit("RSSI floor", this->rssi_floor_, "off");
+  // Per-category limits only for categories something can land in, so the log
+  // does not suggest a feature is in use when it is not.
+  if (!this->mac_allowlist_.empty())
+    log_limit("RSSI limit, mac_allowlist", this->rssi_mac_allowlist_, "floor only");
+  if (!this->irks_.empty())
+    log_limit("RSSI limit, irk", this->rssi_irk_, "inherit threshold");
+  if (!this->service_uuid_allowlist_.empty() || !this->service_uuid128_.empty())
+    log_limit("RSSI limit, service_uuid", this->rssi_service_uuid_, "inherit threshold");
+  if (this->min_rssi_gate_ != -127)
+    ESP_LOGCONFIG(TAG, "  Pre-gate drops anything below %d dBm", this->min_rssi_gate_);
   ESP_LOGCONFIG(TAG, "  Drop non-resolvable: %s", YESNO(this->drop_non_resolvable_));
-  ESP_LOGCONFIG(TAG, "  IRKs: %u", static_cast<unsigned>(this->irks_.size()));
+  if (this->irks_.empty()) {
+    ESP_LOGCONFIG(TAG, "  IRKs: none (rotating addresses are not checked)");
+  } else {
+    ESP_LOGCONFIG(TAG, "  IRKs: %u (RPA verdict cache: %u slots)", static_cast<unsigned>(this->irks_.size()),
+                  static_cast<unsigned>(RPA_CACHE_SIZE));
+  }
+  ESP_LOGCONFIG(TAG, "  Allow Espressif: %s", YESNO(this->allow_espressif_));
   ESP_LOGCONFIG(TAG, "  MAC allowlist: %u, blocklist: %u", static_cast<unsigned>(this->mac_allowlist_.size()),
                 static_cast<unsigned>(this->mac_blocklist_.size()));
+  ESP_LOGCONFIG(TAG, "  Allowlist exclusive: %s", YESNO(this->allowlist_exclusive_));
   ESP_LOGCONFIG(TAG, "  Service UUID allowlist: %u short, %u long",
                 static_cast<unsigned>(this->service_uuid_allowlist_.size()),
                 static_cast<unsigned>(this->service_uuid128_.size()));
+  ESP_LOGCONFIG(TAG, "  Name blocklist: %u", static_cast<unsigned>(this->name_blocklist_.size()));
+  for (const uint16_t company : this->manufacturer_blocklist_)
+    ESP_LOGCONFIG(TAG, "  Manufacturer blocklist: 0x%04X", company);
   ESP_LOGCONFIG(TAG, "  Allow HomeKit: %s", YESNO(this->allow_homekit_));
   if (this->allow_findmy_) {
     if (this->findmy_rssi_ != IBEACON_RSSI_INHERIT) {
@@ -501,11 +561,6 @@ void BLEAdvertFilter::dump_config() {
       }
     }
   }
-  if (this->rssi_floor_ != -127)
-    ESP_LOGCONFIG(TAG, "  Absolute RSSI floor: %d dBm", this->rssi_floor_);
-  if (this->min_rssi_gate_ != -127)
-    ESP_LOGCONFIG(TAG, "  Pre-gate drops anything below %d dBm", this->min_rssi_gate_);
-  ESP_LOGCONFIG(TAG, "  Allowlist exclusive: %s", YESNO(this->allowlist_exclusive_));
 }
 
 bool BLEAdvertFilter::should_forward(const ble_device_base::RawAdvertisement &adv) {
@@ -581,7 +636,7 @@ bool BLEAdvertFilter::should_forward(const ble_device_base::RawAdvertisement &ad
   bool unresolved_rpa = false;
   if (category == CAT_DEFAULT && !this->irks_.empty() && this->address_is_rpa_(adv.address, adv.addr_type) &&
       !(this->allow_espressif_ && this->is_espressif_oui_(adv.address))) {
-    if (this->irk_matches_(adv.address)) {
+    if (this->irk_matches_cached_(adv.address)) {
       // One of ours. Protected so the payload filters below cannot discard it -
       // our phones and watches advertise Apple manufacturer data, which a
       // manufacturer_blocklist entry would otherwise match.
