@@ -451,6 +451,52 @@ int main() {
     check(x.proxy.advertisement_filter_.should_forward(a), "and the slot reaches should_forward()");
   }
 
+  std::printf("\n== review fixes (2.0.2) ==\n");
+  {
+    // A phone's rotating address whose random part lands on an Espressif OUI
+    // (4C:11:AE here) with a valid hash for its key. allow_espressif used to
+    // skip resolution entirely, so the phone was dropped as Apple noise.
+    uint8_t k[16], pt[16] = {0}, ct[16];
+    esphome::parse_hex(SPEC_IRK, 32, k, 16);
+    pt[13] = 0x4C; pt[14] = 0x11; pt[15] = 0xAE;
+    esphome::ble_device_base::aes128_encrypt_block(k, pt, ct);
+    const uint64_t esp_rpa = (0x4C11AEULL << 24) | (uint64_t(ct[13]) << 16) | (uint64_t(ct[14]) << 8) | ct[15];
+    Fixture x; x.f.set_irks_hex(SPEC_IRK); x.f.add_blocked_manufacturer(0x004C); x.f.setup();
+    check(x.fwd(esp_rpa, RANDOM, -60, apple(0x10)) && x.f.get_adv_forwarded_irk() == 1,
+          "an RPA that looks like an Espressif OUI still resolves to its IRK");
+    check(x.fwd(esp_rpa ^ 1, RANDOM, -60, FLAGS), "and an unresolved one is still spared by allow_espressif");
+  }
+  {
+    // ESPHome passes advert + scan response as one buffer; zero padding in the
+    // advert used to end the walk, hiding the scan response.
+    const Bytes padded = FLAGS + Bytes{0x00, 0x00};
+    Fixture x; x.f.set_drop_non_resolvable(true); x.f.add_allowed_service_uuid(0xFFF6); x.f.setup();
+    check(x.fwd(NRPA_ADDR, RANDOM, -60, padded + uuid16_list(0xFFF6)),
+          "an allowlisted UUID after zero padding (in the scan response) still protects");
+    Fixture y; y.f.add_blocked_name("bose"); y.f.setup();
+    check(!y.fwd(STATIC_ADDR, RANDOM, -60, padded + name("Bose QC")),
+          "and a blocked name after zero padding is still blocked");
+  }
+  {
+    Fixture x; x.f.set_drop_non_resolvable(true);
+    x.f.add_allowed_service_uuid128("0000fff600001000800000805f9b34fb"); x.f.setup();
+    check(x.fwd(NRPA_ADDR, RANDOM, -60, FLAGS + uuid16_list(0xFFF6)),
+          "a short UUID configured in full Base-UUID form matches its 16-bit advert");
+    check(!x.fwd(NRPA_ADDR, RANDOM, -60, FLAGS + uuid16_list(0xFFF7)), "and only that UUID");
+  }
+  {
+    // The first iBeacon in the payload matches no rule, a later one does.
+    Fixture x; x.f.add_blocked_manufacturer(0x004C);
+    x.f.add_ibeacon_rule(OUR_UUID, 1, -1, BLEAdvertFilter::IBEACON_RSSI_INHERIT); x.f.setup();
+    check(x.fwd(STATIC_ADDR, RANDOM, -60, ibeacon(9, 1, VENDOR_UUID_BYTES) + ibeacon(1, 1, OUR_UUID_BYTES)),
+          "a matching iBeacon after a non-matching one is still found");
+    const Bytes truncated = ad(0xFF, {0x4C, 0x00, 0x02, 0x15, 0x01, 0x02});
+    check(x.fwd(STATIC_ADDR, RANDOM, -60, truncated + ibeacon(1, 1, OUR_UUID_BYTES)),
+          "and after a truncated one");
+    check(!x.fwd(STATIC_ADDR, RANDOM, -60, ibeacon(9, 1, VENDOR_UUID_BYTES) + ibeacon(2, 1, VENDOR_UUID_BYTES)),
+          "while two non-matching iBeacons are still blocked");
+  }
+
   std::printf("\n== malformed payloads (run under ASan/UBSan) ==\n");
   {
     Fixture x; fleet_config(x);
