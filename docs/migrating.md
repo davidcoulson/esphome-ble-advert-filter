@@ -7,8 +7,8 @@ filters, and this component plugs into it, so there's no modified core component
 step with every ESPHome release.
 
 The options and behaviour are the same. The old fork stays available for ESPHome 2026.9 and
-earlier but won't get new features. Its v1.7.0 matches this repo's v1.7.0; the IRK cache,
-sensors, threshold dial and actions are only here, from v2.0.0.
+earlier and gets filtering fixes, but not new features: its v1.8.0 filter matches this repo's
+v2.0.2, including the IRK cache. The sensors, threshold dial and actions are only here.
 
 ## The change
 
@@ -17,7 +17,7 @@ Once a proxy is on ESPHome 2026.10:
 ```yaml
 external_components:
   # remove the old one:
-  # - source: { type: git, url: https://github.com/davidcoulson/esphome-bluetooth-proxy-filter, ref: v1.7.0 }
+  # - source: { type: git, url: https://github.com/davidcoulson/esphome-bluetooth-proxy-filter, ref: v1.8.0 }
   #   components: [bluetooth_proxy]
   - source:
       type: git
