@@ -511,14 +511,23 @@ void BLEAdvertFilter::dump_config() {
   ESP_LOGCONFIG(TAG, "BLE Advertisement Filter:");
   log_limit("RSSI threshold", this->rssi_threshold_, "off");
   log_limit("RSSI floor", this->rssi_floor_, "off");
-  log_limit("RSSI limit, mac_allowlist", this->rssi_mac_allowlist_, "floor only");
-  log_limit("RSSI limit, irk", this->rssi_irk_, "inherit threshold");
-  log_limit("RSSI limit, service_uuid", this->rssi_service_uuid_, "inherit threshold");
+  // Per-category limits only for categories something can land in, so the log
+  // does not suggest a feature is in use when it is not.
+  if (!this->mac_allowlist_.empty())
+    log_limit("RSSI limit, mac_allowlist", this->rssi_mac_allowlist_, "floor only");
+  if (!this->irks_.empty())
+    log_limit("RSSI limit, irk", this->rssi_irk_, "inherit threshold");
+  if (!this->service_uuid_allowlist_.empty() || !this->service_uuid128_.empty())
+    log_limit("RSSI limit, service_uuid", this->rssi_service_uuid_, "inherit threshold");
   if (this->min_rssi_gate_ != -127)
     ESP_LOGCONFIG(TAG, "  Pre-gate drops anything below %d dBm", this->min_rssi_gate_);
   ESP_LOGCONFIG(TAG, "  Drop non-resolvable: %s", YESNO(this->drop_non_resolvable_));
-  ESP_LOGCONFIG(TAG, "  IRKs: %u (RPA verdict cache: %u slots)", static_cast<unsigned>(this->irks_.size()),
-                static_cast<unsigned>(RPA_CACHE_SIZE));
+  if (this->irks_.empty()) {
+    ESP_LOGCONFIG(TAG, "  IRKs: none (rotating addresses are not checked)");
+  } else {
+    ESP_LOGCONFIG(TAG, "  IRKs: %u (RPA verdict cache: %u slots)", static_cast<unsigned>(this->irks_.size()),
+                  static_cast<unsigned>(RPA_CACHE_SIZE));
+  }
   ESP_LOGCONFIG(TAG, "  Allow Espressif: %s", YESNO(this->allow_espressif_));
   ESP_LOGCONFIG(TAG, "  MAC allowlist: %u, blocklist: %u", static_cast<unsigned>(this->mac_allowlist_.size()),
                 static_cast<unsigned>(this->mac_blocklist_.size()));

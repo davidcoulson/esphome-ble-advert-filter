@@ -67,7 +67,11 @@ jobs:
         if: steps.version.outputs.skip != 'true'
         with:
           path: ~/.platformio
-          key: platformio-${{ steps.version.outputs.version }}-${{ matrix.target }}
+          # Saved fresh every run and restored from the newest match. A dev
+          # version string ("2026.11.0-dev") stays the same for a month while
+          # its toolchain moves, and an exact-match key would never re-save.
+          key: platformio-${{ steps.version.outputs.version }}-${{ matrix.target }}-${{ github.run_id }}
+          restore-keys: platformio-${{ steps.version.outputs.version }}-${{ matrix.target }}-
 
       - name: Compile ${{ matrix.target }} on ESPHome ${{ steps.version.outputs.version }}
         if: steps.version.outputs.skip != 'true'

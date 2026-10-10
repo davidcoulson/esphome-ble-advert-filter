@@ -36,9 +36,14 @@ ble_advert_filter:
     - !secret irk_my_phone
 ```
 
-Giving the filter the id your old proxy had means existing lambdas such as
-`id(ble_proxy).set_rssi_threshold(x)`, `get_adv_forwarded()` and `set_irks(x)` keep working
+Giving the filter the id your old proxy had means lambdas that call the filter's methods, such
+as `id(ble_proxy).set_rssi_threshold(x)`, `get_adv_forwarded()` and `set_irks(x)`, keep working
 without changes.
+
+Lambdas that call `bluetooth_proxy`'s own methods through that id, such as
+`id(ble_proxy).get_feature_flags()`, now need the proxy's new id:
+`id(ble_proxy_core).get_feature_flags()`. ESPHome stops the build with a
+"no member named" error on `BLEAdvertFilter` if one is missed, so none slip through.
 
 ## Afterwards
 

@@ -1,5 +1,6 @@
 __pycache__/
 *.pyc
 
-# ESPHome build output from tests/compile/
+# ESPHome build output from tests/compile/, and the .gitignore ESPHome drops there
 .esphome/
+tests/compile/.gitignore

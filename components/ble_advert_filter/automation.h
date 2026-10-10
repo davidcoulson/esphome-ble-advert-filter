@@ -23,7 +23,7 @@ template<typename... Ts> class SetIrksAction : public Action<Ts...>, public Pare
 /// gating off.
 template<typename... Ts> class ClearIrksAction : public Action<Ts...>, public Parented<BLEAdvertFilter> {
  public:
-  void play(const Ts &...x) override { this->parent_->clear_irks(); }
+  void play(const Ts &.../*x*/) override { this->parent_->clear_irks(); }
 };
 
 }  // namespace esphome::ble_advert_filter

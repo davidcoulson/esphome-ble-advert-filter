@@ -85,7 +85,8 @@ Pick the one closest to what you want. Every option is described in
 
 ### Just cut the noise
 
-No setup beyond the YAML. Safe for any house.
+No setup beyond the YAML. Nothing here looks at who a device is, only how far away it is and
+whether its address can be tracked at all.
 
 ```yaml
 ble_advert_filter:
@@ -93,6 +94,11 @@ ble_advert_filter:
   rssi_floor: -90            # nothing at all below this, even allowlisted devices
   drop_non_resolvable: true  # drop addresses that can never be tracked by anyone
 ```
+
+`drop_non_resolvable` drops adverts from addresses that change constantly and say nothing about
+who sent them. That's mostly noise, but a few things you might track use them, such as some
+beacon apps on Android phones. If something you track disappears, turn it off or add the
+device to `mac_allowlist`, `allow_ibeacon` or `service_uuid_allowlist`.
 
 ### Room tracking with your own phones
 
@@ -108,15 +114,22 @@ ble_advert_filter:
     - !secret irk_my_phone
     - !secret irk_my_watch
   manufacturer_blocklist:
-    - 0x004C                 # Apple background traffic (your own devices still pass)
+    - 0x004C                 # Apple background traffic (devices matched by your IRKs still pass)
   allow_findmy: true         # keep AirTags and AirPods, if you track them
   service_uuid_allowlist:    # keep pairing working
     - 0xFFF6                                   # Matter
     - "00467768-6228-2272-4663-277478268000"   # Improv Wi-Fi
 ```
 
-Blocking Apple is safe here because a device matched by one of your IRKs is never blocked.
-HomeKit accessories are let through by default as well.
+Blocking Apple doesn't affect a device matched by one of your IRKs, and HomeKit accessories are
+let through by default. It does catch every iBeacon, because iBeacons use Apple's ID even when an
+Android phone sends them. If you track a phone through the Home Assistant app's BLE transmitter
+(an iBeacon), let your beacon through by its UUID:
+
+```yaml
+  allow_ibeacon:
+    - uuid: "your-beacon-uuid"   # from the app's BLE transmitter settings
+```
 
 ### A proxy for one or two devices
 

@@ -8,17 +8,33 @@ namespace esphome {
 // consumed, 0 on a non-hex character.
 inline size_t parse_hex(const char *str, size_t len, uint8_t *data, size_t count) {
   auto nib = [](char c) -> int {
-    if (c >= '0' && c <= '9') return c - '0';
-    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
-    if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+    if (c >= '0' && c <= '9')
+      return c - '0';
+    if (c >= 'a' && c <= 'f')
+      return c - 'a' + 10;
+    if (c >= 'A' && c <= 'F')
+      return c - 'A' + 10;
     return -1;
   };
-  if (len > count * 2) len = count * 2;
+  if (len > count * 2)
+    len = count * 2;
   for (size_t i = 0; i + 1 < len; i += 2) {
     const int hi = nib(str[i]), lo = nib(str[i + 1]);
-    if (hi < 0 || lo < 0) return 0;
+    if (hi < 0 || lo < 0)
+      return 0;
     data[i / 2] = static_cast<uint8_t>((hi << 4) | lo);
   }
   return len;
 }
+// Same shape as esphome::Parented.
+template<typename T> class Parented {
+ public:
+  Parented() {}
+  Parented(T *parent) : parent_(parent) {}
+  T *get_parent() const { return parent_; }
+  void set_parent(T *parent) { parent_ = parent; }
+
+ protected:
+  T *parent_{nullptr};
+};
 }  // namespace esphome

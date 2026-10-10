@@ -79,9 +79,13 @@ void BLEAdvertFilterSensor::update() {
 void BLEAdvertFilterSensor::dump_config() {
   ESP_LOGCONFIG(TAG, "BLE Advertisement Filter Sensors:");
   LOG_UPDATE_INTERVAL(this);
-  for (const Rate &rate : this->rates_) {
-    if (rate.sensor != nullptr)
-      LOG_SENSOR("  ", "Rate", rate.sensor);
+  // Same order as the Counter enum and the YAML keys.
+  static const char *const NAMES[COUNTER_COUNT] = {
+      "Forwarded", "Dropped", "Dropped RPA", "Forwarded IRK", "Allowed service UUID", "Dropped floor", "Dropped gate",
+  };
+  for (uint8_t i = 0; i < COUNTER_COUNT; i++) {
+    if (this->rates_[i].sensor != nullptr)
+      LOG_SENSOR("  ", NAMES[i], this->rates_[i].sensor);
   }
   LOG_SENSOR("  ", "Drop rate", this->drop_rate_sensor_);
   LOG_SENSOR("  ", "IRK count", this->irk_count_sensor_);

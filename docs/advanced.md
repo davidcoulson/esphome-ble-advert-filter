@@ -113,6 +113,8 @@ AddressSanitizer and UBSan. It needs only a C++17 compiler. It covers:
 - that the early check never changes a decision (over 200,000 comparisons across 400 random
   configs)
 - 200,000 random and broken adverts, with no out-of-bounds reads
+- the sensors (per-minute rates, drop rate when idle), the threshold dial (saving, restoring
+  after a reboot, clamping) and the `set_irks` / `clear_irks` actions
 
 GitHub Actions also builds `tests/compile/` with real ESPHome for ESP32-C3 and ESP32-S3: on the
 newest release or beta, the newest stable release, and weekly against ESPHome's development
