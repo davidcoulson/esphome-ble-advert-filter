@@ -44,7 +44,7 @@ Values go from -127 to 0; -127 means off. The config check stops two mistakes:
 |---|---|---|
 | `irks` | none | IRKs of your phones and watches. With any set, an advert from a rotating private address that matches none of them is dropped as someone else's. See [Getting your IRKs](irks.md). |
 | `mac_allowlist` | none | Addresses that always get through, whatever else you've blocked (except `mac_blocklist`). Only `rssi_floor` and `rssi_mac_allowlist` apply. |
-| `allowlist_exclusive` | `false` | Turn `mac_allowlist` into the only way through: everything not on it is dropped. |
+| `allowlist_exclusive` | `false` | Make the allow rules the only way through: an advert that `mac_allowlist`, `irks`, `service_uuid_allowlist`, `allow_ibeacon` or `allow_findmy` did not match is dropped. |
 | `service_uuid_allowlist` | none | Service UUIDs that always get through: 16-bit (`0xFFF6`) or full 128-bit. Use it to keep pairing working; see below. |
 | `allow_espressif` | `true` | Never treat an Espressif (ESP32) address as someone else's phone. |
 

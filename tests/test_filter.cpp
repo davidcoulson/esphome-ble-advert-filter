@@ -270,6 +270,8 @@ int main() {
     check(!x.fwd(0x246F28AABBCCULL, PUBLIC, -50, FLAGS + ibeacon(2, 1, OUR_UUID_BYTES)), "another major is still Apple noise");
     Bytes cut = ibeacon(1, 1, OUR_UUID_BYTES); cut.resize(cut.size() - 4); cut[0] -= 4;
     check(!x.fwd(0x246F28AABBCCULL, PUBLIC, -50, FLAGS + cut), "a truncated iBeacon cannot match a major rule");
+    Bytes bad_len = ibeacon(1, 1, OUR_UUID_BYTES); bad_len[5] = 0x14;
+    check(!x.fwd(0x246F28AABBCCULL, PUBLIC, -50, FLAGS + bad_len), "nor one whose length byte is not 0x15");
   }
   {
     Fixture x; x.f.set_rssi_threshold(-75); x.f.set_rssi_floor(-90); x.f.add_blocked_manufacturer(0x004C);
@@ -333,6 +335,12 @@ int main() {
     Bytes cut = ibeacon(1, 7, OUR_UUID_BYTES); cut.resize(10); cut[0] = 9;
     check(!x.fwd(STATIC_ADDR, RANDOM, -50, cut), "a truncated iBeacon (no full uuid) cannot match");
   }
+  {
+    Fixture x; x.f.set_rssi_threshold(-75); x.f.add_blocked_manufacturer(0x004C);
+    x.f.set_allow_ibeacon(true); x.f.setup();
+    check(x.fwd(STATIC_ADDR, RANDOM, -50, ibeacon(1, 1)), "allow_ibeacon exempts a real iBeacon from the Apple blocklist");
+    check(!x.fwd(STATIC_ADDR, RANDOM, -50, apple(0x02, 0)), "but not a bare Apple subtype 0x02 with no iBeacon in it");
+  }
 
   std::printf("\n== service UUID passthrough ==\n");
   {
@@ -347,7 +355,9 @@ int main() {
     check(x.fwd(NRPA_ADDR, RANDOM, -60, ad(0x07, improv_le)), "a 128-bit UUID matches (little-endian on air)");
     Bytes fff6_long{0xFB, 0x34, 0x9B, 0x5F, 0x80, 0x00, 0x00, 0x80, 0x00, 0x10, 0x00, 0x00, 0xF6, 0xFF, 0x00, 0x00};
     check(x.fwd(NRPA_ADDR, RANDOM, -60, ad(0x07, fff6_long)), "a SIG short in Base-UUID long form matches its 16-bit entry");
+    const uint32_t allowed = x.f.get_adv_allowed_service_uuid();
     check(!x.fwd(NRPA_ADDR, RANDOM, -91, FLAGS + uuid16_list(0xFFF6)), "the floor still bounds the passthrough");
+    check(x.f.get_adv_allowed_service_uuid() == allowed, "and one dropped on RSSI is not counted as let through");
   }
 
   std::printf("\n== runtime IRKs ==\n");
