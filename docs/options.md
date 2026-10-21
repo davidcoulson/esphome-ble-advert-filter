@@ -197,4 +197,6 @@ Give the filter an `id` and call these from any lambda:
 | `get_adv_forwarded()`, `get_adv_dropped()`, `get_adv_dropped_rpa()`, `get_adv_forwarded_irk()`, `get_adv_allowed_service_uuid()`, `get_adv_dropped_floor()`, `get_adv_dropped_gate()` | Running totals since boot, the numbers behind the sensors |
 
 The other runtime setters in
-[`ble_advert_filter.h`](../components/ble_advert_filter/ble_advert_filter.h) work too.
+[`ble_advert_filter.h`](../components/ble_advert_filter/ble_advert_filter.h) work too. That includes
+`set_irks_hex()` and `add_allowed_service_uuid128()`, which parse their argument when called, so
+calling them after boot takes effect at once. `set_irks_hex()` replaces the list, like `set_irks()`.

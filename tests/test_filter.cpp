@@ -57,7 +57,7 @@ Bytes operator+(Bytes a, const Bytes &b) {
 }
 const Bytes FLAGS = ad(0x01, {0x06});
 Bytes apple(uint8_t subtype, size_t extra = 4) {
-  Bytes p{0x4C, 0x00, subtype};
+  Bytes p{0x4C, 0x00, subtype, static_cast<uint8_t>(extra)};  // TLV: subtype, length, value
   p.insert(p.end(), extra, 0xAB);
   return ad(0xFF, p);
 }
@@ -253,6 +253,13 @@ int main() {
     check(x.fwd(STATIC_ADDR, RANDOM, -84, FLAGS + apple(0x12, 25)), "FindMy (0x12) is kept, at its own -85 limit, below the -75 threshold");
     check(x.fwd(STATIC_ADDR, RANDOM, -84, FLAGS + apple(0x07, 25)), "AirPods proximity pairing (0x07) rides the same rule");
     check(!x.fwd(STATIC_ADDR, RANDOM, -86, FLAGS + apple(0x12, 25)), "FindMy below its limit is dropped");
+    check(x.fwd(STATIC_ADDR, RANDOM, -84, FLAGS + apple(0x12, 2)), "the short near-owner form (0x12, L=2) is FindMy");
+    for (const uint8_t sub : {0x12, 0x07}) {
+      check(!x.fwd(STATIC_ADDR, RANDOM, -84, ad(0xFF, {0x4C, 0x00, sub})), "a record with no length byte is not FindMy");
+      check(!x.fwd(STATIC_ADDR, RANDOM, -84, ad(0xFF, {0x4C, 0x00, sub, 0x19})), "a record declaring 25 bytes and holding none is not FindMy");
+      check(!x.fwd(STATIC_ADDR, RANDOM, -84, ad(0xFF, {0x4C, 0x00, sub, 0x01, 0xAB})), "L < 2 is not FindMy");
+      check(!x.fwd(STATIC_ADDR, RANDOM, -84, ad(0xFF, {0x4C, 0x00, sub, 0x19, 0xAB})), "a record cut short of its declared length is not FindMy");
+    }
     check(x.fwd(SPEC_RPA, RANDOM, -60, FLAGS + apple(0x10)), "OUR phone, resolved by IRK, is protected from the Apple blocklist");
     check(x.fwd(0xE3AC06854000ULL, RANDOM, -89, FLAGS + apple(0x10)), "so is an allowlisted MAC");
   }
@@ -260,6 +267,16 @@ int main() {
     Fixture x; x.f.add_blocked_manufacturer(0x004C); x.f.set_allow_homekit(false); x.f.setup();
     check(!x.fwd(STATIC_ADDR, RANDOM, -60, apple(0x06)), "allow_homekit: false blocks HAP too");
     check(!x.fwd(STATIC_ADDR, RANDOM, -60, apple(0x12, 25)), "FindMy is blocked unless allow_findmy is on");
+  }
+
+  std::printf("\n== runtime setters after setup() ==\n");
+  {
+    Fixture x; x.f.set_drop_non_resolvable(true); x.f.setup();
+    x.f.set_irks_hex(SPEC_IRK);
+    check(x.f.get_irk_count() == 1 && x.fwd(SPEC_RPA, RANDOM, -60, FLAGS), "set_irks_hex after setup() takes effect (and clears the cached verdict)");
+    check(!x.fwd(NRPA_ADDR, RANDOM, -60, FLAGS + uuid16_list(0xFFF6)), "no UUID allowed yet");
+    x.f.add_allowed_service_uuid128("0000fff600001000800000805f9b34fb");
+    check(x.fwd(NRPA_ADDR, RANDOM, -60, FLAGS + uuid16_list(0xFFF6)), "add_allowed_service_uuid128 after setup() takes effect");
   }
 
   std::printf("\n== iBeacon rules ==\n");

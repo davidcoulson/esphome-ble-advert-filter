@@ -88,7 +88,11 @@ bool BLEAdvertFilter::findmy_match_(const uint8_t *data, uint16_t len) const {
       break;
     if (data[i + 1] == 0xFF && field_len >= 4) {
       const uint16_t company = static_cast<uint16_t>(data[i + 2]) | (static_cast<uint16_t>(data[i + 3]) << 8);
-      if (company == 0x004C && (data[i + 4] == 0x12 || data[i + 4] == 0x07))
+      // Apple continuity messages are TLV: subtype, length L, L bytes. A frame
+      // that is cut short (or declares less than 2 bytes) is not an advert a
+      // tracker could have sent.
+      if (company == 0x004C && (data[i + 4] == 0x12 || data[i + 4] == 0x07) && field_len >= 6 &&
+          data[i + 5] >= 2 && field_len >= 5u + data[i + 5])
         return true;
     }
     i += field_len + 1;
@@ -418,10 +422,9 @@ void BLEAdvertFilter::recompute_gate_() {
   };
   if (!this->mac_allowlist_.empty())
     loosen(floored(this->rssi_mac_allowlist_));
-  // irks_hex_ is the compile-time list before setup() has parsed it.
-  if (!this->irks_.empty() || this->irks_hex_ != nullptr)
+  if (!this->irks_.empty())
     loosen(floored(bound(this->rssi_irk_, this->rssi_threshold_)));
-  if (!this->service_uuid_allowlist_.empty() || !this->service_uuid128_.empty() || !this->service_uuid128_hex_.empty())
+  if (!this->service_uuid_allowlist_.empty() || !this->service_uuid128_.empty())
     loosen(floored(bound(this->rssi_service_uuid_, this->rssi_threshold_)));
   // A rule with its own RSSI overrides the floor as well, so it is NOT floored.
   if (this->allow_ibeacon_ && this->ibeacon_any_rssi_ != IBEACON_RSSI_INHERIT)
@@ -459,8 +462,6 @@ bool BLEAdvertFilter::irk_matches_cached_(uint64_t addr) {
   // AES key schedule and block per loaded key - the whole cost of IRK gating.
   constexpr uint64_t ADDR_MASK = 0xFFFFFFFFFFFFULL;
   constexpr uint64_t OURS = 1ULL << 63;
-  if (this->rpa_cache_.empty())
-    this->rpa_cache_.assign(RPA_CACHE_SIZE, 0);
   for (const uint64_t entry : this->rpa_cache_) {
     if (entry != 0 && (entry & ADDR_MASK) == addr)
       return (entry & OURS) != 0;
@@ -480,40 +481,37 @@ void BLEAdvertFilter::clear_rpa_cache_() {
   this->rpa_cache_next_ = 0;
 }
 
+void BLEAdvertFilter::set_irks_hex(const char *hex) {
+  // Concatenated 32-hex-char keys, unpacked once so the advertisement path only
+  // ever touches the parsed vector.
+  this->irks_.clear();
+  const size_t len = strlen(hex);
+  this->irks_.reserve(len / 32);
+  for (size_t i = 0; i + 32 <= len; i += 32) {
+    std::array<uint8_t, 16> irk{};
+    if (parse_hex(hex + i, 32, irk.data(), 16) == 32)
+      this->irks_.push_back(irk);
+  }
+  this->clear_rpa_cache_();
+  this->recompute_gate_();
+}
+
+void BLEAdvertFilter::add_allowed_service_uuid128(const char *hex) {
+  std::array<uint8_t, 16> uuid{};
+  if (strlen(hex) != 32 || parse_hex(hex, 32, uuid.data(), 16) != 32)
+    return;
+  // 0000xxxx-0000-1000-8000-00805f9b34fb is the 16-bit UUID xxxx written
+  // out in full. Devices advertise the short form, so match that too -
+  // the reverse (short configured, long advertised) already works in
+  // uuid128_matches_().
+  if (memcmp(uuid.data(), BT_BASE_UUID, 2) == 0 && memcmp(uuid.data() + 4, BT_BASE_UUID + 4, 12) == 0) {
+    this->service_uuid_allowlist_.push_back(static_cast<uint16_t>((uuid[2] << 8) | uuid[3]));
+  }
+  this->service_uuid128_.push_back(uuid);
+  this->recompute_gate_();
+}
+
 void BLEAdvertFilter::setup() {
-  // Unpack the compile-time IRK blob (concatenated 32-hex-char keys) once, so
-  // the advertisement path only ever touches the parsed vector.
-  if (this->irks_hex_ != nullptr) {
-    const size_t len = strlen(this->irks_hex_);
-    this->irks_.reserve(len / 32);
-    for (size_t i = 0; i + 32 <= len; i += 32) {
-      std::array<uint8_t, 16> irk{};
-      if (parse_hex(this->irks_hex_ + i, 32, irk.data(), 16) == 32)
-        this->irks_.push_back(irk);
-    }
-    this->irks_hex_ = nullptr;
-    this->clear_rpa_cache_();
-  }
-
-  if (!this->service_uuid128_hex_.empty()) {
-    this->service_uuid128_.reserve(this->service_uuid128_hex_.size());
-    for (const char *hex : this->service_uuid128_hex_) {
-      std::array<uint8_t, 16> uuid{};
-      if (parse_hex(hex, 32, uuid.data(), 16) != 32)
-        continue;
-      // 0000xxxx-0000-1000-8000-00805f9b34fb is the 16-bit UUID xxxx written
-      // out in full. Devices advertise the short form, so match that too -
-      // the reverse (short configured, long advertised) already works in
-      // uuid128_matches_().
-      if (memcmp(uuid.data(), BT_BASE_UUID, 2) == 0 && memcmp(uuid.data() + 4, BT_BASE_UUID + 4, 12) == 0) {
-        this->service_uuid_allowlist_.push_back(static_cast<uint16_t>((uuid[2] << 8) | uuid[3]));
-      }
-      this->service_uuid128_.push_back(uuid);
-    }
-    this->service_uuid128_hex_.clear();
-    this->service_uuid128_hex_.shrink_to_fit();
-  }
-
   this->recompute_gate_();
 
   this->parent_->set_advertisement_filter({this, [](void *self, const ble_device_base::RawAdvertisement &adv) {

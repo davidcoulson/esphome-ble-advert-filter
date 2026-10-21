@@ -164,11 +164,8 @@ class BLEAdvertFilter : public Component {
     this->findmy_rssi_ = rssi;
     this->recompute_gate_();
   }
-  void set_irks_hex(const char *hex) {
-    this->irks_hex_ = hex;
-    this->clear_rpa_cache_();
-    this->recompute_gate_();
-  }
+  /// Replace the IRK list with concatenated 32-hex-char keys (what the codegen passes).
+  void set_irks_hex(const char *hex);
   /// Replace the IRK list at runtime - typically from a Home Assistant entity,
   /// so a new phone does not mean reflashing every proxy.
   ///
@@ -200,7 +197,7 @@ class BLEAdvertFilter : public Component {
   /// Verdicts remembered for recently seen RPAs, so a phone advertising several
   /// times a second costs one IRK resolution per address rotation (~15 min)
   /// instead of one per advertisement. Each slot is 8 bytes; allocated on the
-  /// first RPA seen while IRKs are loaded, and emptied whenever the key list
+  /// zero-filled, and emptied whenever the key list
   /// changes.
   static constexpr size_t RPA_CACHE_SIZE = 64;
   /// IRK resolutions actually computed (cache misses). Each costs one AES
@@ -238,10 +235,7 @@ class BLEAdvertFilter : public Component {
     this->service_uuid_allowlist_.push_back(uuid);
     this->recompute_gate_();
   }
-  void add_allowed_service_uuid128(const char *hex) {
-    this->service_uuid128_hex_.push_back(hex);
-    this->recompute_gate_();
-  }
+  void add_allowed_service_uuid128(const char *hex);
 
   uint32_t get_adv_forwarded() const { return this->adv_forwarded_; }
   uint32_t get_adv_dropped() const { return this->adv_dropped_; }
@@ -297,13 +291,12 @@ class BLEAdvertFilter : public Component {
   uint32_t adv_dropped_gate_{0};
   uint32_t irk_resolutions_{0};
 
-  const char *irks_hex_{nullptr};
   std::vector<std::array<uint8_t, 16>> irks_;
   // Each slot is a 48-bit address with the verdict in bit 63; 0 is empty (an
   // RPA always has bit 46 set, so a real entry is never 0). Filled round-robin:
   // the oldest verdict goes first, which for rotating addresses is the one
   // least likely to be heard again.
-  std::vector<uint64_t> rpa_cache_;
+  std::array<uint64_t, RPA_CACHE_SIZE> rpa_cache_{};
   uint8_t rpa_cache_next_{0};
   std::vector<const char *> name_blocklist_;
   std::vector<uint64_t> mac_allowlist_;
@@ -324,7 +317,6 @@ class BLEAdvertFilter : public Component {
     }
   };
   std::vector<IBeaconRule> ibeacon_rules_;
-  std::vector<const char *> service_uuid128_hex_;
   std::vector<std::array<uint8_t, 16>> service_uuid128_;
   std::vector<uint16_t> manufacturer_blocklist_;
 
