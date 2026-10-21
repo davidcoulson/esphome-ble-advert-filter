@@ -36,8 +36,9 @@ advert goes through these steps, and the first one that drops it wins:
 7. **Untrackable address.** `drop_non_resolvable` is on, the address is non-resolvable, and the
    group is *everything else*: dropped.
 8. **Blocked content.** The manufacturer is on `manufacturer_blocklist` or the name matches
-   `name_blocklist`, and the group is *everything else*: dropped. HomeKit accessories are skipped
-   here while `allow_homekit` is on.
+   `name_blocklist`, and the group is *everything else*: dropped. While `allow_homekit` is on,
+   a HomeKit accessory is exempt from the Apple entry in `manufacturer_blocklist`, but not from
+   `name_blocklist`.
 9. Otherwise it's sent to Home Assistant.
 
 Every group except *everything else* skips steps 6 to 8. That's what "your devices are never

@@ -224,8 +224,9 @@ class BLEAdvertFilter : public Component {
   /// reporting the device, so dropping its advertisements here takes this proxy
   /// out of the running without turning it into a single-purpose bridge.
   void add_blocked_mac(uint64_t addr) { this->mac_blocklist_.push_back(addr); }
-  /// Turn mac_allowlist from a bypass list into an exclusive one: nothing but
-  /// those addresses is forwarded.
+  /// Turn the allow rules from a bypass into the only way through: an advert is
+  /// forwarded only if mac_allowlist, an IRK, service_uuid_allowlist or an
+  /// iBeacon / FindMy rule matched it.
   ///
   /// Reproduces the observable behaviour of the ESP-IDF controller whitelist
   /// (esphome/esphome#14353) on platforms that have no such hardware path -
