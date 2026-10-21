@@ -7,8 +7,8 @@ filters, and this component plugs into it, so there's no modified core component
 step with every ESPHome release.
 
 The options and behaviour are the same. The old fork stays available for ESPHome 2026.9 and
-earlier and gets filtering fixes, but not new features: its v1.8.1 filter matches this repo's
-v2.0.3, including the IRK cache. The sensors, threshold dial and actions are only here.
+earlier and gets filtering fixes, but not new features: its v1.8.2 filter matches this repo's
+v2.0.4, including the IRK cache. The sensors, threshold dial and actions are only here.
 
 ## The change
 
@@ -22,7 +22,7 @@ external_components:
   - source:
       type: git
       url: https://github.com/davidcoulson/esphome-ble-advert-filter
-      ref: v2.0.3
+      ref: v2.0.4
     components: [ble_advert_filter]
 
 bluetooth_proxy:
