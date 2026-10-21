@@ -101,6 +101,13 @@ text_sensor:
     on_value:
       - ble_advert_filter.set_irks: !lambda "return x;"
 
+# ESPHome logs every attribute it receives at DEBUG, keys included, and
+# `internal: true` does not stop that line.
+logger:
+  logs:
+    homeassistant.text_sensor: WARN
+    text_sensor: WARN
+
 sensor:
   - platform: ble_advert_filter
     irk_count:
@@ -110,6 +117,11 @@ sensor:
 After reloading template entities in Home Assistant, `BLE IRKs Loaded` on each proxy should
 show the number of keys in your list. Changes reach every proxy within a second or two, with
 no reboot.
+
+Identity addresses are not protected. When the controller has already resolved a bonded device
+and reports its identity address (address type 2 or 3), there is no RPA to match against a key,
+so IRK protection does not apply. Put that identity MAC in `mac_allowlist` if the device must
+be protected.
 
 ### How the list is read
 
