@@ -65,7 +65,7 @@ external_components:
   - source:
       type: git
       url: https://github.com/davidcoulson/esphome-ble-advert-filter
-      ref: v2.2.1
+      ref: v2.3.0
     components: [ble_advert_filter]
 
 bluetooth_proxy:

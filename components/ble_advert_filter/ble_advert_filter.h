@@ -283,6 +283,8 @@ class BLEAdvertFilter : public Component {
   /// The predicate itself. False drops the advertisement.
   bool should_forward(const ble_device_base::RawAdvertisement &adv);
 
+  static uint32_t other_key(const uint8_t *data, uint16_t len);
+
  protected:
   // RawAdvertisement::addr_type, as the hubs report it: 0 public, 1 random.
   // ESP-IDF adds 2/3 for identity addresses of RPAs its controller resolved.
@@ -296,6 +298,18 @@ class BLEAdvertFilter : public Component {
   void clear_rpa_cache_();
   bool payload_blocked_(const uint8_t *data, uint16_t len) const;
   static bool payload_has_data_(const uint8_t *data, uint16_t len);
+  /// What "other" is made of: the first manufacturer id (0x1xxxx), 16-bit
+  /// service UUID (0x2xxxx) or service-data UUID (0x3xxxx) of each unclaimed
+  /// advert forwarded, logged at INFO every OTHER_LOG_MS and reset.
+  void tally_other_(const uint8_t *data, uint16_t len);
+  static constexpr uint32_t OTHER_LOG_MS = 300000;
+  struct OtherSlot {
+    uint32_t key;
+    uint32_t count;
+  };
+  std::array<OtherSlot, 8> other_slots_{};
+  uint32_t other_overflow_{0};
+  uint32_t other_log_ms_{0};
   /// True when the advert is an iBeacon accepted by a configured filter;
   /// writes that filter's RSSI limit to limit_out.
   bool ibeacon_match_(const uint8_t *data, uint16_t len, int8_t *limit_out) const;

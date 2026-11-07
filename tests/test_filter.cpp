@@ -553,6 +553,21 @@ int main() {
           "while two non-matching iBeacons are still blocked");
   }
 
+  std::printf("\n== other breakdown keys ==\n");
+  {
+    using F = esphome::ble_advert_filter::BLEAdvertFilter;
+    auto key = [](const std::vector<uint8_t> &p) { return F::other_key(p.data(), p.size()); };
+    check(key(FLAGS + ad(0xFF, {0x4C, 0x00, 0x12})) == 0x1004Cu, "manufacturer id keys as mf");
+    check(key(FLAGS + uuid16_list(0xFEED)) == 0x2FEEDu, "a 16-bit uuid keys as uuid");
+    check(key(FLAGS + ad(0x16, {0xFD, 0xFF, 0x01})) == 0x3FFFDu, "service data keys as svcdata");
+    check(key(FLAGS + ad(0x09, {'x'})) == 0, "a name-only advert has no key");
+    check(key(FLAGS + ad(0xFF, {0x4C})) == 0, "a short manufacturer field is skipped, not read past");
+    Fixture x; x.f.setup();
+    esphome::test_millis() = 1;
+    for (int i = 0; i < 20; i++)
+      check(x.fwd(0xC0AABBCCDDEEULL + i, RANDOM, -60, FLAGS + uuid16_list(0x1000 + i)), "forwarded as other");
+    check(x.f.get_adv_forwarded_other() == 20, "tallying never changes the verdict or the counter");
+  }
   std::printf("\n== malformed payloads (run under ASan/UBSan) ==\n");
   {
     Fixture x; fleet_config(x);

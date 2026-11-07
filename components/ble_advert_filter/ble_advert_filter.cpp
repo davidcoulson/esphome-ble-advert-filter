@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cinttypes>
+#include <cstdio>
 #include <cstring>
 
 namespace esphome::ble_advert_filter {
@@ -290,6 +291,63 @@ bool BLEAdvertFilter::payload_has_data_(const uint8_t *data, uint16_t len) {
     i += field_len + 1;
   }
   return false;
+}
+
+uint32_t BLEAdvertFilter::other_key(const uint8_t *data, uint16_t len) {
+  // Same walk as payload_has_data_; the first identifying structure names the
+  // bucket. 32/128-bit UUIDs get a kind with no id: rare, and the kind is the
+  // useful part.
+  uint16_t i = 0;
+  while (i < len) {
+    const uint8_t field_len = data[i];
+    if (field_len == 0) {
+      i++;
+      continue;
+    }
+    if (static_cast<uint32_t>(i) + 1u + field_len > len)
+      break;
+    const uint8_t type = data[i + 1];
+    const uint32_t kind = type == 0xFF ? 1u : (type == 0x16 || type == 0x20 || type == 0x21) ? 3u : 2u;
+    if (field_len >= 3 && (type == 0xFF || type == 0x02 || type == 0x03 || type == 0x16))
+      return (kind << 16) | (static_cast<uint32_t>(data[i + 3]) << 8) | data[i + 2];
+    if ((type >= 0x04 && type <= 0x07) || type == 0x20 || type == 0x21)
+      return kind << 16;
+    i += field_len + 1;
+  }
+  return 0;
+}
+
+void BLEAdvertFilter::tally_other_(const uint8_t *data, uint16_t len) {
+  const uint32_t key = other_key(data, len);
+  bool stored = false;
+  for (auto &s : this->other_slots_) {
+    if (s.count != 0 && s.key != key)
+      continue;
+    s.key = key;
+    s.count++;
+    stored = true;
+    break;
+  }
+  if (!stored)
+    this->other_overflow_++;
+  const uint32_t now = millis();
+  if (static_cast<uint32_t>(now - this->other_log_ms_) < OTHER_LOG_MS)
+    return;
+  this->other_log_ms_ = now;
+  std::sort(this->other_slots_.begin(), this->other_slots_.end(),
+            [](const OtherSlot &a, const OtherSlot &b) { return a.count > b.count; });
+  static const char *const KINDS[] = {"none", "mf", "uuid", "svcdata"};
+  char line[160];
+  int n = 0;
+  for (const auto &s : this->other_slots_) {
+    if (s.count == 0 || n >= static_cast<int>(sizeof(line)) - 24)
+      break;
+    n += snprintf(line + n, sizeof(line) - n, " %s:%04X=%u", KINDS[s.key >> 16], static_cast<unsigned>(s.key & 0xFFFF),
+                  static_cast<unsigned>(s.count));
+  }
+  ESP_LOGI(TAG, "Other forwarded since last report:%s more=%u", line, static_cast<unsigned>(this->other_overflow_));
+  this->other_slots_.fill(OtherSlot{0, 0});
+  this->other_overflow_ = 0;
 }
 
 bool BLEAdvertFilter::payload_has_allowed_service_uuid_(const uint8_t *data, uint16_t len) const {
@@ -862,6 +920,7 @@ bool BLEAdvertFilter::should_forward(const ble_device_base::RawAdvertisement &ad
       break;
     default:
       this->adv_forwarded_other_++;
+      this->tally_other_(data, data_len);
       break;
   }
   if ((category == CAT_IRK || category == CAT_MAC) && adv.rssi >= this->tracked_rssi_) {
