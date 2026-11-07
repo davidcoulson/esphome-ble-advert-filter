@@ -25,6 +25,14 @@ uint32_t BLEAdvertFilterSensor::read_(Counter counter) const {
       return this->parent_->get_adv_dropped_floor();
     case DROPPED_GATE:
       return this->parent_->get_adv_dropped_gate();
+    case FORWARDED_MAC:
+      return this->parent_->get_adv_forwarded_mac();
+    case FORWARDED_IBEACON:
+      return this->parent_->get_adv_forwarded_ibeacon();
+    case FORWARDED_FINDMY:
+      return this->parent_->get_adv_forwarded_findmy();
+    case FORWARDED_OTHER:
+      return this->parent_->get_adv_forwarded_other();
     default:
       return 0;
   }
@@ -81,7 +89,8 @@ void BLEAdvertFilterSensor::dump_config() {
   LOG_UPDATE_INTERVAL(this);
   // Same order as the Counter enum and the YAML keys.
   static const char *const NAMES[COUNTER_COUNT] = {
-      "Forwarded", "Dropped", "Dropped RPA", "Forwarded IRK", "Allowed service UUID", "Dropped floor", "Dropped gate",
+      "Forwarded",     "Dropped",           "Dropped RPA",       "Forwarded IRK",    "Allowed service UUID", "Dropped floor",
+      "Dropped gate",  "Forwarded MAC",     "Forwarded iBeacon", "Forwarded FindMy", "Forwarded other",
   };
   for (uint8_t i = 0; i < COUNTER_COUNT; i++) {
     if (this->rates_[i].sensor != nullptr)

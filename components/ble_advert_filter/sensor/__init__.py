@@ -33,6 +33,10 @@ _RATES = {
     "allowed_service_uuid": ("ALLOWED_SERVICE_UUID", "mdi:key-wireless"),
     "dropped_floor": ("DROPPED_FLOOR", "mdi:signal-off"),
     "dropped_gate": ("DROPPED_GATE", "mdi:filter-remove"),
+    "forwarded_mac": ("FORWARDED_MAC", "mdi:tag"),
+    "forwarded_ibeacon": ("FORWARDED_IBEACON", "mdi:access-point"),
+    "forwarded_findmy": ("FORWARDED_FINDMY", "mdi:apple"),
+    "forwarded_other": ("FORWARDED_OTHER", "mdi:help-network"),
 }
 
 CONFIG_SCHEMA = cv.Schema(

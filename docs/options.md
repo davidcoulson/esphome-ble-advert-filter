@@ -30,6 +30,7 @@ roughly double the distance, but walls and bodies make it a rough guide at best.
 | `rssi_mac_allowlist` | `rssi_floor` | Limit for devices on `mac_allowlist`. By default they ignore `rssi_threshold` and only the floor applies. |
 | `rssi_irk` | `rssi_threshold` | Limit for your phones and watches (matched by `irks`). |
 | `rssi_service_uuid` | `rssi_threshold` | Limit for devices matched by `service_uuid_allowlist`. |
+| `tracked_rssi` | off | Not a filter. An `irks` or `mac_allowlist` advert at least this strong marks a tracked device as nearby for `tracked_seen_within()` (see [lambdas](#using-it-from-lambdas)). |
 
 Values go from -127 to 0; -127 means off. The config check stops two mistakes:
 
@@ -144,6 +145,10 @@ All keys are optional and take normal [sensor options](https://esphome.io/compon
 | `allowed_service_uuid` | adv/min | Let through only because of `service_uuid_allowlist`. Stays at 0 unless something is pairing |
 | `dropped_floor` | adv/min | Dropped by `rssi_floor`. If this climbs, the floor may be cutting off devices you track |
 | `dropped_gate` | adv/min | Dropped for being weaker than any of your limits allow |
+| `forwarded_mac` | adv/min | Let through by `mac_allowlist` |
+| `forwarded_ibeacon` | adv/min | Let through by `allow_ibeacon` |
+| `forwarded_findmy` | adv/min | Let through by `allow_findmy` |
+| `forwarded_other` | adv/min | Let through because nothing dropped them: the share of your traffic no rule claims. With `forwarded_irk`, `forwarded_mac`, `forwarded_ibeacon`, `forwarded_findmy` and `allowed_service_uuid` this adds up to `forwarded` |
 | `irk_count` | | IRKs currently loaded |
 
 Rates are worked out from the real time between updates, so they're correct for any
@@ -194,7 +199,29 @@ Give the filter an `id` and call these from any lambda:
 | `set_irks(std::string)` | Same as the action. Returns how many keys loaded, or -1 if none were found |
 | `clear_irks()` | Same as the action |
 | `get_irk_count()`, `get_irks()` | The loaded keys |
-| `get_adv_forwarded()`, `get_adv_dropped()`, `get_adv_dropped_rpa()`, `get_adv_forwarded_irk()`, `get_adv_allowed_service_uuid()`, `get_adv_dropped_floor()`, `get_adv_dropped_gate()` | Running totals since boot, the numbers behind the sensors |
+| `get_adv_forwarded()`, `get_adv_dropped()`, `get_adv_dropped_rpa()`, `get_adv_forwarded_irk()`, `get_adv_allowed_service_uuid()`, `get_adv_dropped_floor()`, `get_adv_dropped_gate()`, `get_adv_forwarded_mac()`, `get_adv_forwarded_ibeacon()`, `get_adv_forwarded_findmy()`, `get_adv_forwarded_other()` | Running totals since boot, the numbers behind the sensors |
+| `tracked_seen_within(uint32_t ms)`, `set_tracked_rssi(int8_t)` | Whether a phone (`irks`) or tag (`mac_allowlist`) at least `tracked_rssi` strong was forwarded in the last `ms` milliseconds |
+
+`tracked_seen_within()` is for proxies on Wi-Fi, where BLE scanning takes airtime from Wi-Fi:
+scan hard only while something you track is in the room, and back off when it leaves.
+
+```yaml
+ble_advert_filter:
+  id: my_filter
+  tracked_rssi: -75
+
+interval:
+  - interval: 5s
+    then:
+      - lambda: |-
+          static bool boosted = false;
+          bool want = id(my_filter).tracked_seen_within(60000);
+          if (want == boosted) return;
+          boosted = want;
+          id(ble_tracker).set_scan_window(want ? 480 : 192);  // 0.625 ms units: 300 ms or 120 ms of 320 ms
+          id(ble_tracker).set_scan_interval(512);
+      # new windows apply when the next scan starts; stop and restart to apply now
+```
 
 The other runtime setters in
 [`ble_advert_filter.h`](../components/ble_advert_filter/ble_advert_filter.h) work too. That includes

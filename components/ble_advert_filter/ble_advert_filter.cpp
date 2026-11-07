@@ -543,6 +543,8 @@ void BLEAdvertFilter::dump_config() {
   if (this->min_rssi_gate_ != -127)
     ESP_LOGCONFIG(TAG, "  Pre-gate drops anything below %d dBm", this->min_rssi_gate_);
   ESP_LOGCONFIG(TAG, "  Drop non-resolvable: %s", YESNO(this->drop_non_resolvable_));
+  if (this->tracked_rssi_ != -127)
+    ESP_LOGCONFIG(TAG, "  Tracked (IRK / mac_allowlist) counts as nearby from %d dBm", this->tracked_rssi_);
   if (this->irks_.empty()) {
     ESP_LOGCONFIG(TAG, "  IRKs: none (rotating addresses are not checked)");
   } else {
@@ -810,10 +812,30 @@ bool BLEAdvertFilter::should_forward(const ble_device_base::RawAdvertisement &ad
   }
 
   this->adv_forwarded_++;
-  if (category == CAT_IRK)
-    this->adv_forwarded_irk_++;
-  if (category == CAT_UUID)
-    this->adv_allowed_service_uuid_++;
+  switch (category) {
+    case CAT_IRK:
+      this->adv_forwarded_irk_++;
+      break;
+    case CAT_UUID:
+      this->adv_allowed_service_uuid_++;
+      break;
+    case CAT_MAC:
+      this->adv_forwarded_mac_++;
+      break;
+    case CAT_IBEACON:
+      this->adv_forwarded_ibeacon_++;
+      break;
+    case CAT_FINDMY:
+      this->adv_forwarded_findmy_++;
+      break;
+    default:
+      this->adv_forwarded_other_++;
+      break;
+  }
+  if ((category == CAT_IRK || category == CAT_MAC) && adv.rssi >= this->tracked_rssi_) {
+    this->tracked_seen_ = true;
+    this->tracked_last_ms_ = millis();
+  }
   return true;
 }
 

@@ -138,6 +138,26 @@ int main() {
     Fixture x; x.f.setup();  // no IRKs configured
     check(x.fwd(STRANGER_RPA, RANDOM, -60, FLAGS), "with no IRKs, RPAs are not gated at all (upstream behaviour)");
   }
+  std::printf("== per-rule forwarded counters and the tracked clock ==\n");
+  {
+    Fixture x; x.f.set_irks_hex(SPEC_IRK); x.f.add_allowed_mac(STATIC_ADDR); x.f.set_tracked_rssi(-75); x.f.setup();
+    esphome::test_millis() = 10000;
+    check(!x.f.tracked_seen_within(60000), "nothing tracked heard yet");
+    check(x.fwd(0xC0AABBCCDDEEULL, RANDOM, -60, FLAGS) && x.f.get_adv_forwarded_other() == 1,
+          "an unclaimed static address is counted as other");
+    check(!x.f.tracked_seen_within(60000), "and does not count as tracked");
+    check(x.fwd(STATIC_ADDR, RANDOM, -80, FLAGS) && x.f.get_adv_forwarded_mac() == 1,
+          "an allowlisted tag is counted as mac");
+    check(!x.f.tracked_seen_within(60000), "but below tracked_rssi it is not nearby");
+    check(x.fwd(SPEC_RPA, RANDOM, -70, FLAGS) && x.f.tracked_seen_within(60000), "a phone at -70 is nearby");
+    esphome::test_millis() = 70000;
+    check(x.f.tracked_seen_within(60000), "still nearby 60 s later");
+    esphome::test_millis() = 70001;
+    check(!x.f.tracked_seen_within(60000), "gone at 60.001 s");
+    check(x.fwd(STATIC_ADDR, RANDOM, -75, FLAGS) && x.f.tracked_seen_within(1), "a tag exactly at tracked_rssi is nearby");
+    check(x.f.get_adv_forwarded() == x.f.get_adv_forwarded_other() + x.f.get_adv_forwarded_mac() + x.f.get_adv_forwarded_irk(),
+          "the per-rule counters sum to forwarded");
+  }
   {
     Fixture x; x.f.set_irks_hex(SPEC_IRK); x.f.setup();
     check(x.fwd(0x4C1122334455ULL, PUBLIC, -60, FLAGS), "a PUBLIC address in the RPA bit range (Espressif 4C:..) is never treated as an RPA");

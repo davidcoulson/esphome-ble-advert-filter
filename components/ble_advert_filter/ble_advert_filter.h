@@ -1,6 +1,7 @@
 #pragma once
 
 #include "esphome/core/component.h"
+#include "esphome/core/hal.h"
 #include "esphome/core/helpers.h"
 #include "esphome/components/bluetooth_proxy/bluetooth_proxy.h"
 
@@ -256,6 +257,22 @@ class BLEAdvertFilter : public Component {
   /// limit in the whole config, so this is "too weak for ANY rule", not "too
   /// weak for the floor".
   uint32_t get_adv_dropped_gate() const { return this->adv_dropped_gate_; }
+  /// get_adv_forwarded() split by the rule that let each advert through. With
+  /// get_adv_forwarded_irk() and get_adv_allowed_service_uuid() these sum to the
+  /// total; "other" passed on rssi_threshold alone, i.e. nothing claimed it.
+  uint32_t get_adv_forwarded_mac() const { return this->adv_forwarded_mac_; }
+  uint32_t get_adv_forwarded_ibeacon() const { return this->adv_forwarded_ibeacon_; }
+  uint32_t get_adv_forwarded_findmy() const { return this->adv_forwarded_findmy_; }
+  uint32_t get_adv_forwarded_other() const { return this->adv_forwarded_other_; }
+
+  /// A tracked advert is one forwarded for a mac_allowlist address or a resolved
+  /// IRK at tracked_rssi or stronger (-127 = any). True while one was heard in
+  /// the last `ms` milliseconds, so a scan-duty automation can boost the radio
+  /// only when something we track is actually nearby.
+  void set_tracked_rssi(int8_t rssi) { this->tracked_rssi_ = rssi; }
+  bool tracked_seen_within(uint32_t ms) const {
+    return this->tracked_seen_ && static_cast<uint32_t>(millis() - this->tracked_last_ms_) <= ms;
+  }
 
   /// The predicate itself. False drops the advertisement.
   bool should_forward(const ble_device_base::RawAdvertisement &adv);
@@ -289,7 +306,14 @@ class BLEAdvertFilter : public Component {
   uint32_t adv_allowed_service_uuid_{0};
   uint32_t adv_dropped_floor_{0};
   uint32_t adv_dropped_gate_{0};
+  uint32_t adv_forwarded_mac_{0};
+  uint32_t adv_forwarded_ibeacon_{0};
+  uint32_t adv_forwarded_findmy_{0};
+  uint32_t adv_forwarded_other_{0};
   uint32_t irk_resolutions_{0};
+  int8_t tracked_rssi_{-127};
+  bool tracked_seen_{false};
+  uint32_t tracked_last_ms_{0};
 
   std::vector<std::array<uint8_t, 16>> irks_;
   // Each slot is a 48-bit address with the verdict in bit 63; 0 is empty (an

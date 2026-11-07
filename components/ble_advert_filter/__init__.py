@@ -40,6 +40,7 @@ CONF_RSSI_FLOOR = "rssi_floor"
 CONF_RSSI_MAC_ALLOWLIST = "rssi_mac_allowlist"
 CONF_RSSI_IRK = "rssi_irk"
 CONF_RSSI_SERVICE_UUID = "rssi_service_uuid"
+CONF_TRACKED_RSSI = "tracked_rssi"
 CONF_IRKS = "irks"
 CONF_ALLOW_ESPRESSIF = "allow_espressif"
 CONF_ALLOW_HOMEKIT = "allow_homekit"
@@ -257,6 +258,9 @@ CONFIG_SCHEMA = cv.Schema(
         # it bounds mac_allowlist / service_uuid_allowlist too. -127 disables it
         # and is the default, so an unconfigured build is unchanged.
         cv.Optional(CONF_RSSI_FLOOR, default=-127): cv.int_range(min=-127, max=0),
+        # An IRK or mac_allowlist advert at or above this counts as "a tracked
+        # device is nearby" for tracked_seen_within(). -127 = any strength.
+        cv.Optional(CONF_TRACKED_RSSI, default=-127): cv.int_range(min=-127, max=0),
         # Per-category limits. -127 (default) means inherit; see the setters in
         # ble_advert_filter.h for what each inherits and why.
         cv.Optional(CONF_RSSI_MAC_ALLOWLIST, default=-127): cv.int_range(
@@ -317,6 +321,7 @@ async def to_code(config: ConfigType) -> None:
     _findmy_to_code(var, config)
     cg.add(var.set_rssi_irk(config[CONF_RSSI_IRK]))
     cg.add(var.set_rssi_service_uuid(config[CONF_RSSI_SERVICE_UUID]))
+    cg.add(var.set_tracked_rssi(config[CONF_TRACKED_RSSI]))
     cg.add(var.set_allow_espressif(config[CONF_ALLOW_ESPRESSIF]))
     cg.add(var.set_allow_homekit(config[CONF_ALLOW_HOMEKIT]))
     cg.add(var.set_drop_non_resolvable(config[CONF_DROP_NON_RESOLVABLE]))

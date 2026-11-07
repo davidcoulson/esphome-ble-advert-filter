@@ -27,6 +27,10 @@ class BLEAdvertFilterSensor : public PollingComponent, public Parented<BLEAdvert
     ALLOWED_SERVICE_UUID,
     DROPPED_FLOOR,
     DROPPED_GATE,
+    FORWARDED_MAC,
+    FORWARDED_IBEACON,
+    FORWARDED_FINDMY,
+    FORWARDED_OTHER,
     COUNTER_COUNT,
   };
 
