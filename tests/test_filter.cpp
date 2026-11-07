@@ -553,6 +553,17 @@ int main() {
           "while two non-matching iBeacons are still blocked");
   }
 
+  std::printf("\n== service UUID blocklist ==\n");
+  {
+    // A Fi collar's 128-bit UUID, little-endian on the air.
+    const std::vector<uint8_t> FI = ad(0x07, {0xc1, 0x06, 0xec, 0xf0, 0x9a, 0xb4, 0x43, 0xb0, 0xbc, 0xd6, 0x28, 0x25, 0x01, 0x00, 0xb4, 0x57});
+    Fixture x; x.f.set_irks_hex(SPEC_IRK); x.f.add_blocked_service_uuid128("57b400012528d6bcb043b49af0ec06c1"); x.f.add_blocked_service_uuid(0xFEED); x.f.setup();
+    check(!x.fwd(0xE921C5D52E97ULL, RANDOM, -50, FLAGS + FI), "a blocklisted 128-bit UUID is dropped");
+    check(!x.fwd(STATIC_ADDR, PUBLIC, -50, FLAGS + uuid16_list(0xFEED)), "and a blocklisted 16-bit UUID");
+    check(!x.fwd(STATIC_ADDR, PUBLIC, -50, FLAGS + ad(0x16, {0xED, 0xFE, 0x01})), "also as service data");
+    check(x.fwd(STATIC_ADDR, PUBLIC, -50, FLAGS + uuid16_list(0xFEEC)), "an unlisted UUID is untouched");
+    check(x.fwd(SPEC_RPA, RANDOM, -50, FLAGS + FI), "a phone we hold the IRK for is protected from it");
+  }
   std::printf("\n== other breakdown keys ==\n");
   {
     using F = esphome::ble_advert_filter::BLEAdvertFilter;

@@ -65,7 +65,7 @@ external_components:
   - source:
       type: git
       url: https://github.com/davidcoulson/esphome-ble-advert-filter
-      ref: v2.3.0
+      ref: v2.4.0
     components: [ble_advert_filter]
 
 bluetooth_proxy:
@@ -141,6 +141,18 @@ ble_advert_filter:
   mac_allowlist:
     - "A4:C1:38:12:34:56"    # a thermometer
   allowlist_exclusive: true
+```
+
+### Silence one chatterbox
+
+A device on a random static address changes address when it reboots, so `mac_blocklist` goes
+stale. Block what it advertises instead; the UUID forms are the same as `service_uuid_allowlist`.
+A device matched by one of your IRKs or `mac_allowlist` is never dropped by this.
+
+```yaml
+ble_advert_filter:
+  service_uuid_blocklist:
+    - "57b40001-2528-d6bc-b043-b49af0ec06c1"   # a Fi dog collar, ~3 adverts/s
 ```
 
 ## Check that it's working

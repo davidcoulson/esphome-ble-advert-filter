@@ -243,6 +243,11 @@ class BLEAdvertFilter : public Component {
     this->recompute_gate_();
   }
   void add_allowed_service_uuid128(const char *hex);
+  /// Drop any advert carrying this service UUID (16-bit or 128-bit) unless a
+  /// rule above protects the address. For a chatterbox on a random static
+  /// address, where mac_blocklist goes stale on every reboot.
+  void add_blocked_service_uuid(uint16_t uuid) { this->service_uuid_block16_.push_back(uuid); }
+  void add_blocked_service_uuid128(const char *hex);
 
   uint32_t get_adv_forwarded() const { return this->adv_forwarded_; }
   uint32_t get_adv_dropped() const { return this->adv_dropped_; }
@@ -314,8 +319,11 @@ class BLEAdvertFilter : public Component {
   /// writes that filter's RSSI limit to limit_out.
   bool ibeacon_match_(const uint8_t *data, uint16_t len, int8_t *limit_out) const;
   bool findmy_match_(const uint8_t *data, uint16_t len) const;
-  bool payload_has_allowed_service_uuid_(const uint8_t *data, uint16_t len) const;
-  bool uuid128_matches_(const uint8_t *le_bytes) const;
+  using Uuid128List = std::vector<std::array<uint8_t, 16>>;
+  static bool payload_has_service_uuid_(const uint8_t *data, uint16_t len, const std::vector<uint16_t> &list16,
+                                        const Uuid128List &list128);
+  static bool uuid128_in_(const uint8_t *le_bytes, const std::vector<uint16_t> &list16, const Uuid128List &list128);
+  static bool add_service_uuid128_(const char *hex, std::vector<uint16_t> &list16, Uuid128List &list128);
   void recompute_gate_();
 
   bluetooth_proxy::BluetoothProxy *parent_{nullptr};
@@ -363,6 +371,8 @@ class BLEAdvertFilter : public Component {
   };
   std::vector<IBeaconRule> ibeacon_rules_;
   std::vector<std::array<uint8_t, 16>> service_uuid128_;
+  std::vector<uint16_t> service_uuid_block16_;
+  Uuid128List service_uuid_block128_;
   std::vector<uint16_t> manufacturer_blocklist_;
 
   int8_t rssi_threshold_{-127};

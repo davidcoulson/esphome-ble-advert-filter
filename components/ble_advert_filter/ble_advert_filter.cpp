@@ -248,23 +248,23 @@ bool BLEAdvertFilter::payload_blocked_(const uint8_t *data, uint16_t len) const 
 static const uint8_t BT_BASE_UUID[16] = {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x10, 0x00,
                                          0x80, 0x00, 0x00, 0x80, 0x5F, 0x9B, 0x34, 0xFB};
 
-bool BLEAdvertFilter::uuid128_matches_(const uint8_t *le_bytes) const {
+bool BLEAdvertFilter::uuid128_in_(const uint8_t *le_bytes, const std::vector<uint16_t> &list16, const Uuid128List &list128) {
   // Advertisements carry 128-bit UUIDs little-endian; flip to canonical order
   // once, then compare.
   uint8_t be[16];
   for (uint8_t k = 0; k < 16; k++)
     be[k] = le_bytes[15 - k];
 
-  for (const auto &allowed : this->service_uuid128_) {
+  for (const auto &allowed : list128) {
     if (memcmp(be, allowed.data(), 16) == 0)
       return true;
   }
 
   // Long form of a SIG short UUID: everything but bytes 2-3 matches the base.
-  if (!this->service_uuid_allowlist_.empty() && memcmp(be, BT_BASE_UUID, 2) == 0 &&
+  if (!list16.empty() && memcmp(be, BT_BASE_UUID, 2) == 0 &&
       memcmp(be + 4, BT_BASE_UUID + 4, 12) == 0) {
     const uint16_t shortened = static_cast<uint16_t>(be[3]) | (static_cast<uint16_t>(be[2]) << 8);
-    for (const uint16_t allowed : this->service_uuid_allowlist_) {
+    for (const uint16_t allowed : list16) {
       if (allowed == shortened)
         return true;
     }
@@ -350,7 +350,8 @@ void BLEAdvertFilter::tally_other_(const uint8_t *data, uint16_t len) {
   this->other_overflow_ = 0;
 }
 
-bool BLEAdvertFilter::payload_has_allowed_service_uuid_(const uint8_t *data, uint16_t len) const {
+bool BLEAdvertFilter::payload_has_service_uuid_(const uint8_t *data, uint16_t len,
+                                                const std::vector<uint16_t> &list16, const Uuid128List &list128) {
   // Same [length][type][payload...] walk as payload_blocked_. A service UUID can
   // appear in several places and a device in pairing mode does not consistently
   // use one, so every form is checked:
@@ -360,8 +361,8 @@ bool BLEAdvertFilter::payload_has_allowed_service_uuid_(const uint8_t *data, uin
   //   0x06/0x07 incomplete/complete 128-bit UUID list  (n * 16 bytes)
   //   0x15      128-bit solicitation list              (n * 16 bytes)
   //   0x21      service data, 128-bit UUID             (16 bytes + data)
-  const bool have16 = !this->service_uuid_allowlist_.empty();
-  const bool have128 = !this->service_uuid128_.empty();
+  const bool have16 = !list16.empty();
+  const bool have128 = !list128.empty();
   uint16_t i = 0;
   while (i < len) {
     const uint8_t field_len = data[i];
@@ -386,7 +387,7 @@ bool BLEAdvertFilter::payload_has_allowed_service_uuid_(const uint8_t *data, uin
       for (uint8_t p = 0; p < limit; p++) {
         const uint16_t uuid =
             static_cast<uint16_t>(data[i + 2 + p * 2]) | (static_cast<uint16_t>(data[i + 3 + p * 2]) << 8);
-        for (const uint16_t allowed : this->service_uuid_allowlist_) {
+        for (const uint16_t allowed : list16) {
           if (allowed == uuid)
             return true;
         }
@@ -399,7 +400,7 @@ bool BLEAdvertFilter::payload_has_allowed_service_uuid_(const uint8_t *data, uin
       const uint8_t entries = payload_len / 16;
       const uint8_t limit = (type == 0x21) ? (entries > 0 ? 1 : 0) : entries;
       for (uint8_t p = 0; p < limit; p++) {
-        if (this->uuid128_matches_(&data[i + 2 + p * 16]))
+        if (uuid128_in_(&data[i + 2 + p * 16], list16, list128))
           return true;
       }
     }
@@ -575,19 +576,28 @@ void BLEAdvertFilter::set_irks_hex(const char *hex) {
   this->recompute_gate_();
 }
 
-void BLEAdvertFilter::add_allowed_service_uuid128(const char *hex) {
+bool BLEAdvertFilter::add_service_uuid128_(const char *hex, std::vector<uint16_t> &list16, Uuid128List &list128) {
   std::array<uint8_t, 16> uuid{};
   if (strlen(hex) != 32 || parse_hex(hex, 32, uuid.data(), 16) != 32)
-    return;
+    return false;
   // 0000xxxx-0000-1000-8000-00805f9b34fb is the 16-bit UUID xxxx written
   // out in full. Devices advertise the short form, so match that too -
   // the reverse (short configured, long advertised) already works in
-  // uuid128_matches_().
+  // uuid128_in_().
   if (memcmp(uuid.data(), BT_BASE_UUID, 2) == 0 && memcmp(uuid.data() + 4, BT_BASE_UUID + 4, 12) == 0) {
-    this->service_uuid_allowlist_.push_back(static_cast<uint16_t>((uuid[2] << 8) | uuid[3]));
+    list16.push_back(static_cast<uint16_t>((uuid[2] << 8) | uuid[3]));
   }
-  this->service_uuid128_.push_back(uuid);
-  this->recompute_gate_();
+  list128.push_back(uuid);
+  return true;
+}
+
+void BLEAdvertFilter::add_allowed_service_uuid128(const char *hex) {
+  if (add_service_uuid128_(hex, this->service_uuid_allowlist_, this->service_uuid128_))
+    this->recompute_gate_();
+}
+
+void BLEAdvertFilter::add_blocked_service_uuid128(const char *hex) {
+  add_service_uuid128_(hex, this->service_uuid_block16_, this->service_uuid_block128_);
 }
 
 void BLEAdvertFilter::setup() {
@@ -640,6 +650,9 @@ void BLEAdvertFilter::dump_config() {
   ESP_LOGCONFIG(TAG, "  Service UUID allowlist: %u short, %u long",
                 static_cast<unsigned>(this->service_uuid_allowlist_.size()),
                 static_cast<unsigned>(this->service_uuid128_.size()));
+  ESP_LOGCONFIG(TAG, "  Service UUID blocklist: %u short, %u long",
+                static_cast<unsigned>(this->service_uuid_block16_.size()),
+                static_cast<unsigned>(this->service_uuid_block128_.size()));
   ESP_LOGCONFIG(TAG, "  Name blocklist: %u", static_cast<unsigned>(this->name_blocklist_.size()));
   for (const uint16_t company : this->manufacturer_blocklist_)
     ESP_LOGCONFIG(TAG, "  Manufacturer blocklist: 0x%04X", company);
@@ -797,7 +810,7 @@ bool BLEAdvertFilter::should_forward(const ble_device_base::RawAdvertisement &ad
   // pairing mode advertises from a rotating private address, which the
   // non-resolvable test below would otherwise discard.
   if (category == CAT_DEFAULT && (!this->service_uuid_allowlist_.empty() || !this->service_uuid128_.empty()) &&
-      this->payload_has_allowed_service_uuid_(data, data_len)) {
+      this->payload_has_service_uuid_(data, data_len, this->service_uuid_allowlist_, this->service_uuid128_)) {
     category = CAT_UUID;
     protected_addr = true;
   }
@@ -890,6 +903,12 @@ bool BLEAdvertFilter::should_forward(const ble_device_base::RawAdvertisement &ad
       this->payload_blocked_(data, data_len)) {
     this->adv_dropped_++;
     ESP_LOGVV(TAG, "Dropping packet from %012" PRIX64 ": blocklisted name or manufacturer", adv.address);
+    return false;
+  }
+  if (!protected_addr && (!this->service_uuid_block16_.empty() || !this->service_uuid_block128_.empty()) &&
+      payload_has_service_uuid_(data, data_len, this->service_uuid_block16_, this->service_uuid_block128_)) {
+    this->adv_dropped_++;
+    ESP_LOGVV(TAG, "Dropping packet from %012" PRIX64 ": blocklisted service UUID", adv.address);
     return false;
   }
 

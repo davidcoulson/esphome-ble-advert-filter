@@ -58,6 +58,7 @@ CONF_MAC_BLOCKLIST = "mac_blocklist"
 CONF_ALLOWLIST_EXCLUSIVE = "allowlist_exclusive"
 CONF_MANUFACTURER_BLOCKLIST = "manufacturer_blocklist"
 CONF_SERVICE_UUID_ALLOWLIST = "service_uuid_allowlist"
+CONF_SERVICE_UUID_BLOCKLIST = "service_uuid_blocklist"
 
 
 def _mac_address(value: str | MACAddress) -> MACAddress:
@@ -296,6 +297,9 @@ CONFIG_SCHEMA = cv.Schema(
         cv.Optional(CONF_SERVICE_UUID_ALLOWLIST, default=[]): cv.ensure_list(
             _validate_service_uuid
         ),
+        cv.Optional(CONF_SERVICE_UUID_BLOCKLIST, default=[]): cv.ensure_list(
+            _validate_service_uuid
+        ),
     }
 ).extend(cv.COMPONENT_SCHEMA)
 
@@ -345,6 +349,11 @@ async def to_code(config: ConfigType) -> None:
             cg.add(var.add_allowed_service_uuid128(uuid))
         else:
             cg.add(var.add_allowed_service_uuid(uuid))
+    for uuid in config[CONF_SERVICE_UUID_BLOCKLIST]:
+        if isinstance(uuid, str):
+            cg.add(var.add_blocked_service_uuid128(uuid))
+        else:
+            cg.add(var.add_blocked_service_uuid(uuid))
 
 
 @automation.register_action(
