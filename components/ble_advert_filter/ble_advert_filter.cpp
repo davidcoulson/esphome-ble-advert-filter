@@ -561,12 +561,14 @@ void BLEAdvertFilter::dump_config() {
     log_limit("RSSI limit, irk", this->rssi_irk_, "inherit threshold");
   if (!this->service_uuid_allowlist_.empty() || !this->service_uuid128_.empty())
     log_limit("RSSI limit, service_uuid", this->rssi_service_uuid_, "inherit threshold");
-  if (this->min_rssi_gate_ != -127)
+  if (this->min_rssi_gate_ != -127) {
     ESP_LOGCONFIG(TAG, "  Pre-gate drops anything below %d dBm", this->min_rssi_gate_);
+  }
   ESP_LOGCONFIG(TAG, "  Drop non-resolvable: %s", YESNO(this->drop_non_resolvable_));
   ESP_LOGCONFIG(TAG, "  Drop payload-less: %s", YESNO(this->drop_payloadless_));
-  if (this->tracked_rssi_ != -127)
+  if (this->tracked_rssi_ != -127) {
     ESP_LOGCONFIG(TAG, "  Tracked (IRK / mac_allowlist) counts as nearby from %d dBm", this->tracked_rssi_);
+  }
   if (this->irks_.empty()) {
     ESP_LOGCONFIG(TAG, "  IRKs: none (rotating addresses are not checked)");
   } else {
