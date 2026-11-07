@@ -271,6 +271,27 @@ bool BLEAdvertFilter::uuid128_matches_(const uint8_t *le_bytes) const {
   return false;
 }
 
+bool BLEAdvertFilter::payload_has_data_(const uint8_t *data, uint16_t len) {
+  // Same walk as payload_blocked_. True on the first structure that could carry
+  // an identity: manufacturer data (0xFF), a service UUID list (0x02-0x07) or
+  // service data (0x16, 0x20, 0x21). Flags, names and tx power do not count.
+  uint16_t i = 0;
+  while (i < len) {
+    const uint8_t field_len = data[i];
+    if (field_len == 0) {
+      i++;
+      continue;
+    }
+    if (static_cast<uint32_t>(i) + 1u + field_len > len)
+      break;
+    const uint8_t type = data[i + 1];
+    if (type == 0xFF || (type >= 0x02 && type <= 0x07) || type == 0x16 || type == 0x20 || type == 0x21)
+      return true;
+    i += field_len + 1;
+  }
+  return false;
+}
+
 bool BLEAdvertFilter::payload_has_allowed_service_uuid_(const uint8_t *data, uint16_t len) const {
   // Same [length][type][payload...] walk as payload_blocked_. A service UUID can
   // appear in several places and a device in pairing mode does not consistently
@@ -543,6 +564,7 @@ void BLEAdvertFilter::dump_config() {
   if (this->min_rssi_gate_ != -127)
     ESP_LOGCONFIG(TAG, "  Pre-gate drops anything below %d dBm", this->min_rssi_gate_);
   ESP_LOGCONFIG(TAG, "  Drop non-resolvable: %s", YESNO(this->drop_non_resolvable_));
+  ESP_LOGCONFIG(TAG, "  Drop payload-less: %s", YESNO(this->drop_payloadless_));
   if (this->tracked_rssi_ != -127)
     ESP_LOGCONFIG(TAG, "  Tracked (IRK / mac_allowlist) counts as nearby from %d dBm", this->tracked_rssi_);
   if (this->irks_.empty()) {
@@ -808,6 +830,14 @@ bool BLEAdvertFilter::should_forward(const ble_device_base::RawAdvertisement &ad
       this->payload_blocked_(data, data_len)) {
     this->adv_dropped_++;
     ESP_LOGVV(TAG, "Dropping packet from %012" PRIX64 ": blocklisted name or manufacturer", adv.address);
+    return false;
+  }
+
+  // 8. Nothing claimed it and it says nothing: no manufacturer data, service
+  //    UUID or service data. Mostly ESPHome nodes' own flags-only frames.
+  if (category == CAT_DEFAULT && this->drop_payloadless_ && !payload_has_data_(data, data_len)) {
+    this->adv_dropped_++;
+    ESP_LOGVV(TAG, "Dropping packet from %012" PRIX64 ": no identifying payload", adv.address);
     return false;
   }
 

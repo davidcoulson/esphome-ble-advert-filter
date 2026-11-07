@@ -145,6 +145,12 @@ class BLEAdvertFilter : public Component {
 
   void set_allow_espressif(bool allow) { this->allow_espressif_ = allow; }
   void set_drop_non_resolvable(bool drop) { this->drop_non_resolvable_ = drop; }
+  /// Drop adverts no rule claimed that carry no manufacturer data, service
+  /// UUID or service data: flags, name and tx power alone identify nothing a
+  /// tracker can use. ESPHome's own BLE nodes send such frames at 20-40 ms
+  /// whenever esp32_ble has a beacon or server configured, so on a fleet this
+  /// is most of the "other" traffic.
+  void set_drop_payloadless(bool drop) { this->drop_payloadless_ = drop; }
   void set_allow_homekit(bool allow) { this->allow_homekit_ = allow; }
   /// Exempt Apple FindMy (Offline Finding) advertisements from
   /// manufacturer_blocklist: AirTags, AirPods and licensed third-party tags
@@ -289,6 +295,7 @@ class BLEAdvertFilter : public Component {
   bool irk_matches_cached_(uint64_t addr);
   void clear_rpa_cache_();
   bool payload_blocked_(const uint8_t *data, uint16_t len) const;
+  static bool payload_has_data_(const uint8_t *data, uint16_t len);
   /// True when the advert is an iBeacon accepted by a configured filter;
   /// writes that filter's RSSI limit to limit_out.
   bool ibeacon_match_(const uint8_t *data, uint16_t len, int8_t *limit_out) const;
@@ -353,6 +360,7 @@ class BLEAdvertFilter : public Component {
   int8_t rssi_service_uuid_{-127};
   bool allow_espressif_{true};
   bool drop_non_resolvable_{false};
+  bool drop_payloadless_{false};
   bool allow_homekit_{true};
   bool allow_ibeacon_{false};
   int8_t ibeacon_any_rssi_{-127};

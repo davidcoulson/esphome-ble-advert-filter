@@ -51,6 +51,7 @@ CONF_MAJOR = "major"
 CONF_MINOR = "minor"
 CONF_RSSI = "rssi"
 CONF_DROP_NON_RESOLVABLE = "drop_non_resolvable"
+CONF_DROP_PAYLOADLESS = "drop_payloadless"
 CONF_NAME_BLOCKLIST = "name_blocklist"
 CONF_MAC_ALLOWLIST = "mac_allowlist"
 CONF_MAC_BLOCKLIST = "mac_blocklist"
@@ -282,6 +283,7 @@ CONFIG_SCHEMA = cv.Schema(
         # manufacturer data too, from a random static address no IRK resolves.
         cv.Optional(CONF_ALLOW_FINDMY, default=False): _validate_allow_findmy,
         cv.Optional(CONF_DROP_NON_RESOLVABLE, default=False): cv.boolean,
+        cv.Optional(CONF_DROP_PAYLOADLESS, default=False): cv.boolean,
         cv.Optional(CONF_NAME_BLOCKLIST, default=[]): cv.ensure_list(
             cv.All(cv.string_strict, cv.Length(min=1, max=29))
         ),
@@ -325,6 +327,7 @@ async def to_code(config: ConfigType) -> None:
     cg.add(var.set_allow_espressif(config[CONF_ALLOW_ESPRESSIF]))
     cg.add(var.set_allow_homekit(config[CONF_ALLOW_HOMEKIT]))
     cg.add(var.set_drop_non_resolvable(config[CONF_DROP_NON_RESOLVABLE]))
+    cg.add(var.set_drop_payloadless(config[CONF_DROP_PAYLOADLESS]))
     cg.add(var.set_allowlist_exclusive(config[CONF_ALLOWLIST_EXCLUSIVE]))
 
     if irks := config[CONF_IRKS]:

@@ -67,6 +67,7 @@ they'd be dropped. Listing the service UUID they advertise keeps them visible:
 | `manufacturer_blocklist` | none | Bluetooth company IDs to drop, for example `0x004C` for Apple. Your own devices are never dropped by this. |
 | `name_blocklist` | none | Drop adverts whose name contains any of these words. Not case-sensitive, up to 29 characters each. |
 | `drop_non_resolvable` | `false` | Drop adverts from "non-resolvable" random addresses. These change constantly and carry no identity, so nothing, including Home Assistant, can ever track them. |
+| `drop_payloadless` | `false` | Drop adverts that carry no manufacturer data, service UUID or service data, so only flags, a name or tx power. Nothing can identify a device from those. ESPHome nodes with a beacon or BLE server send such frames every 20-40 ms, so on a fleet of proxies this is usually most of the traffic no other rule claims (`forwarded_other`). Never applied to your own `mac_allowlist`, IRK, beacon or FindMy devices. |
 
 `mac_blocklist` is handy when several proxies can hear a device that needs a single, stable
 connection, such as some smart locks. Blocking it on the proxies you don't want handling it

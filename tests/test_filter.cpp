@@ -259,6 +259,15 @@ int main() {
     check(x.fwd(STATIC_ADDR, RANDOM, -60, FLAGS), "and never a static random address");
   }
   {
+    Fixture x; x.f.set_drop_payloadless(true); x.f.add_allowed_mac(STATIC_ADDR + 1); x.f.setup();
+    check(!x.fwd(STATIC_ADDR, PUBLIC, -60, FLAGS), "drop_payloadless drops a flags-only frame");
+    check(!x.fwd(STATIC_ADDR, PUBLIC, -60, FLAGS + name("rrn00-de3b04") + ad(0x0A, {0x03})), "and one with only a name and tx power");
+    check(x.fwd(STATIC_ADDR, PUBLIC, -60, FLAGS + ad(0xFF, {0x43, 0x88, 0x01})), "but keeps manufacturer data");
+    check(x.fwd(STATIC_ADDR, PUBLIC, -60, FLAGS + uuid16_list(0x1234)), "a service UUID list");
+    check(x.fwd(STATIC_ADDR, PUBLIC, -60, FLAGS + ad(0x16, {0x34, 0x12, 0x01})), "service data");
+    check(x.fwd(STATIC_ADDR + 1, RANDOM, -60, FLAGS), "and a flags-only frame from an allowlisted MAC");
+  }
+  {
     Fixture x; x.f.add_blocked_name("govee"); x.f.setup();
     check(!x.fwd(STATIC_ADDR, RANDOM, -60, FLAGS + name("My GOVEE_H6001")), "name_blocklist is a case-insensitive substring match");
     check(x.fwd(STATIC_ADDR, RANDOM, -60, FLAGS + name("gove")), "a shorter name does not match a longer needle");

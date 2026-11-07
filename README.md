@@ -65,7 +65,7 @@ external_components:
   - source:
       type: git
       url: https://github.com/davidcoulson/esphome-ble-advert-filter
-      ref: v2.1.0
+      ref: v2.2.0
     components: [ble_advert_filter]
 
 bluetooth_proxy:
@@ -93,6 +93,7 @@ ble_advert_filter:
   rssi_threshold: -80        # drop anything weaker than this
   rssi_floor: -90            # nothing at all below this, even allowlisted devices
   drop_non_resolvable: true  # drop addresses that can never be tracked by anyone
+  drop_payloadless: true     # drop flags-only frames (mostly other ESPHome nodes)
 ```
 
 `drop_non_resolvable` drops adverts from addresses that change constantly and say nothing about
